@@ -1,0 +1,103 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String          @id @default(cuid()) @map("_id")
+  email         String?         @unique
+  name          String?
+  passwordHash  String?         // null for OAuth users
+  role          Role            @default(USER)
+  accounts      Account[]
+  refreshTokens RefreshToken[]
+  resumes       Resume[]
+  createdAt     DateTime        @default(now())
+}
+
+model Account {
+  id            String   @id @default(cuid()) @map("_id")
+  provider      String
+  providerId    String
+  accessToken   String?
+  refreshToken  String?
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String
+
+  createdAt     DateTime @default(now())
+
+  @@unique([provider, providerId])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid()) @map("_id")
+  tokenHash String
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Resume {
+  id           String       @id @default(cuid()) @map("_id")
+  filename     String
+  sizeKB       Float
+  fullText     String
+  jsonData     Json?
+
+  uploadedBy   User?        @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploadedById String?
+
+  createdAt    DateTime     @default(now())
+
+  feedbacks    Feedback[]   // ✅ Back relation
+}
+
+model Feedback {
+  id        String   @id @default(cuid()) @map("_id")
+
+  resume    Resume   @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  resumeId  String
+
+  reviewer  String
+  content   Json
+  createdAt DateTime @default(now())
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model JobDescription {
+  id            String   @id @default(cuid()) @map("_id")
+  uploadedById  String?
+  fullText      String
+  createdAt     DateTime @default(now())
+}
+
+model MatchAnalysis {
+  id              String   @id @default(cuid()) @map("_id")
+  userId          String?
+  resumeId        String?
+  jdId            String?
+
+  summary         String
+  score           Int
+  strengths       String[]
+  weaknesses      String[]
+  missingSkills   String[]
+  recommendations String[]
+  generatedResume Json?
+  jdText          String?
+
+  createdAt       DateTime @default(now())
+}

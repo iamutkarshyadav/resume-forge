@@ -1,0 +1,10 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.TRPCError = exports.middleware = exports.router = exports.publicProcedure = void 0;
+const server_1 = require("@trpc/server");
+const t = server_1.initTRPC.context().create();
+exports.publicProcedure = t.procedure;
+exports.router = t.router;
+exports.middleware = t.middleware;
+var server_2 = require("@trpc/server");
+Object.defineProperty(exports, "TRPCError", { enumerable: true, get: function () { return server_2.TRPCError; } });

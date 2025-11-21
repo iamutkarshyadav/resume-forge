@@ -54,24 +54,69 @@ export default function ResumeLibraryPage() {
     setRecentResumes(demoResumes);
   }, []);
 
+  // ✅ BACKEND INTEGRATION — DO NOT TOUCH UI
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     setUploading(true);
+    setError(null);
+
     try {
-      await new Promise((r) => setTimeout(r, 800));
+      const formData = new FormData();
+      formData.append("resume", file);
+
+      const token = localStorage.getItem("accessToken");
+      if (!token) {
+        throw new Error("Login expired. Please sign in again.");
+      }
+
+      const res = await fetch("http://localhost:3000/api/v1/files/upload", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+
+      if (!res.ok) {
+        let message = "Upload failed.";
+        try {
+          const err = await res.json();
+          message = err?.message || message;
+        } catch {}
+        throw new Error(message);
+      }
+
+      const data = await res.json();
+
+      // 🔥 Extract resume ID for redirect — works for ANY backend shape
+      const resumeId =
+        data?.data?.resumeId ||
+        data?.data?.id ||
+        data?.resumeId ||
+        data?.id ||
+        null;
+
+      if (!resumeId) {
+        throw new Error("Upload succeeded but no resume ID returned.");
+      }
+
+      // Add to UI
       const newResume: Resume = {
-        id: `r-${Date.now()}`,
+        id: resumeId,
         title: file.name,
         uploadedAt: new Date().toISOString(),
         status: "Pending",
       };
+
       setRecentResumes((prev) => [newResume, ...prev]);
-      router.push(`/resumes/${newResume.id}`);
-    } catch {
-      setError("Upload failed");
+
+      // Redirect to analysis page
+      router.push(`/resumes/${resumeId}`);
+    } catch (err: any) {
+      setError(err?.message || "Something went wrong.");
     } finally {
       setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -128,12 +173,14 @@ export default function ResumeLibraryPage() {
 
       {/* UPLOAD + RECENT RESUMES */}
       <motion.section variants={containerStagger} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {/* Upload card */}
+        
+        {/* Upload Card */}
         <Card className="border border-neutral-800 bg-neutral-950 rounded-2xl p-8">
           <CardHeader>
             <CardTitle>Upload Resume</CardTitle>
             <CardDescription>Drag & drop, browse files, or choose an option below.</CardDescription>
           </CardHeader>
+
           <CardContent className="space-y-4">
             <motion.label
               whileHover={{ scale: 1.01 }}
@@ -144,10 +191,17 @@ export default function ResumeLibraryPage() {
               <Upload className="h-10 w-10 mb-4" />
               <span className="text-lg font-medium">Drag & drop your resume</span>
               <p className="text-sm text-neutral-400 mt-2">or click to browse</p>
-              <input type="file" id="resume-upload" className="hidden" accept=".pdf,.doc,.docx" ref={fileInputRef} onChange={handleFileUpload} />
+
+              <input
+                type="file"
+                id="resume-upload"
+                className="hidden"
+                accept=".pdf,.doc,.docx"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+              />
             </motion.label>
 
-            {/* Upload Options */}
             <div className="grid grid-cols-2 gap-4 mt-6">
               <Button variant="outline" className="flex items-center justify-center gap-2" onClick={onChooseFile}>
                 <PlusCircle className="h-4 w-4" /> Upload File
@@ -165,23 +219,34 @@ export default function ResumeLibraryPage() {
           </CardContent>
         </Card>
 
-        {/* Recent resumes */}
+        {/* Recent Resumes */}
         <Card className="border border-neutral-800 bg-neutral-950 rounded-2xl p-6 space-y-6">
           <CardHeader>
             <CardTitle>Recent Resumes</CardTitle>
             <CardDescription>Quick access to uploaded files and insights</CardDescription>
           </CardHeader>
+
           <CardContent className="space-y-4">
             {filteredResumes.length === 0 && <p className="text-neutral-400">No resumes found.</p>}
+
             {filteredResumes.map((r, idx) => (
-              <motion.div key={r.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.05 }} className="flex justify-between items-center p-3 rounded-lg hover:bg-neutral-900/20 transition">
+              <motion.div
+                key={r.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.05 }}
+                className="flex justify-between items-center p-3 rounded-lg hover:bg-neutral-900/20 transition"
+              >
                 <div className="flex items-center gap-3">
                   <FileText className="h-6 w-6" />
                   <div>
                     <p className="font-medium">{r.title}</p>
-                    <p className="text-xs text-neutral-400">{r.uploadedAt} • {r.status}</p>
+                    <p className="text-xs text-neutral-400">
+                      {r.uploadedAt} • {r.status}
+                    </p>
                   </div>
                 </div>
+
                 <div className="flex gap-2">
                   <Button variant="ghost" size="sm" onClick={() => router.push(`/resumes/${r.id}`)}>View</Button>
                   <Button variant="default" size="sm" onClick={() => router.push(`/resumes/${r.id}`)}>Analyze</Button>
@@ -194,15 +259,33 @@ export default function ResumeLibraryPage() {
 
       {/* Graph Analytics */}
       <motion.section variants={fadeUp} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-12">
+        
         <Card className="border border-neutral-800 bg-neutral-950 p-6 rounded-2xl">
           <CardTitle>Resume Score Trends</CardTitle>
-          <Line data={chartData} options={{ responsive: true, plugins: { legend: { labels: { color: "#fff" } }, tooltip: { enabled: true } }, scales: { x: { ticks: { color: "#fff" } }, y: { ticks: { color: "#fff" } } } }} />
+          <Line
+            data={chartData}
+            options={{
+              responsive: true,
+              plugins: {
+                legend: { labels: { color: "#fff" } },
+                tooltip: { enabled: true },
+              },
+              scales: {
+                x: { ticks: { color: "#fff" } },
+                y: { ticks: { color: "#fff" } },
+              },
+            }}
+          />
         </Card>
 
         <Card className="border border-neutral-800 bg-neutral-950 p-6 rounded-2xl space-y-4">
           <CardTitle>AI Suggestions</CardTitle>
+
           {recentResumes.map((r, i) => (
-            <div key={i} className="border border-neutral-700 p-3 rounded-lg hover:bg-neutral-900/30 transition">
+            <div
+              key={i}
+              className="border border-neutral-700 p-3 rounded-lg hover:bg-neutral-900/30 transition"
+            >
               <p className="text-sm text-neutral-400">{r.title}</p>
               <p className="font-medium">{r.insight ?? "No insight yet"}</p>
             </div>
@@ -213,8 +296,14 @@ export default function ResumeLibraryPage() {
       <Separator className="bg-neutral-800" />
 
       {/* Footer */}
-      <motion.footer variants={fadeUp} initial="hidden" animate="visible" className="flex flex-col md:flex-row justify-between text-sm text-neutral-400 pt-4 gap-4">
+      <motion.footer
+        variants={fadeUp}
+        initial="hidden"
+        animate="visible"
+        className="flex flex-col md:flex-row justify-between text-sm text-neutral-400 pt-4 gap-4"
+      >
         <p>© 2025 ResumeAI. Built by Utkarsh.</p>
+
         <div className="flex gap-4">
           <Button variant="ghost" size="sm" onClick={() => router.push("/settings")}>Settings</Button>
           <Button variant="ghost" size="sm" onClick={() => router.push("/activity")}>Activity</Button>

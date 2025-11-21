@@ -54,7 +54,12 @@ export async function uploadResumeHandler(req: Request, res: Response, next: Nex
       if (!file) return res.status(400).json({ message: "No file uploaded" });
 
       const result = await parseAndSaveResume(file, user.id);
-      return res.json({ success: true, resume: result.resume, parsed: result.parsed });
+      return res.json({
+        success: true,
+        resumeId: result.resume.id,
+        resume: result.resume,
+        parsed: result.parsed
+      });
     } catch (e) {
       next(e);
     }

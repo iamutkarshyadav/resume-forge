@@ -3,7 +3,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-
 import {
   Card,
   CardHeader,
@@ -11,7 +10,6 @@ import {
   CardDescription,
   CardContent,
 } from "@/components/ui/card";
-
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -19,47 +17,39 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Label } from "@/components/ui/label";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-
-import { Line } from "react-chartjs-2";
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Title,
-  Tooltip as ChartTooltip,
-  Legend,
-} from "chart.js";
 import { trpc } from "@/lib/trpc";
 import {
-  FileText,
-  Sparkles,
-  AlertTriangle,
-  CheckCircle,
   Download,
   Share2,
-  Clock,
+  AlertTriangle,
+  CheckCircle,
+  FileText,
+  Sparkles,
+  Link2,
+  Edit,
+  ArrowLeft,
 } from "lucide-react";
 
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Title,
-  ChartTooltip,
-  Legend
-);
-
 /**
- * Types based on your DB output
+ * Redesigned Resume Analysis Page
+ *
+ * Goals:
+ * - concise, robust layout
+ * - summary + bullets
+ * - pros/cons
+ * - skills present / missing
+ * - actions and preview
+ * - defensive rendering + skeleton states
+ *
+ * Keep using ShadCN components; small motion enhancements.
  */
+
+/* ------------------------------
+   Types: mirror what your backend returns
+   ------------------------------ */
 type Keyword = { name: string; found: boolean; density?: number };
 type Metric = { label: string; value: number };
-type Suggestion = { id: string; text: string; targetId: string; priority: "High" | "Medium" | "Low" };
+type Suggestion = { id: string; text: string; targetId?: string; priority?: "High" | "Medium" | "Low" };
 type TimelineEvent = { id: string; time: string; event: string; completed: boolean };
 
 type JsonDataShape = {
@@ -67,11 +57,10 @@ type JsonDataShape = {
   email?: string;
   phone?: string;
   summary?: string;
-  skills?: string[]; // the DB returns a flattened array — we'll normalize
-  experience?: any[]; // might be empty
+  skills?: string[];
+  experience?: any[];
   projects?: any[];
   education?: { institution?: string; degree?: string }[];
-  path?: string; // "uploads\\file.pdf"
   previewUrl?: string | null;
   score?: number;
   jobMatchScore?: number;
@@ -82,25 +71,29 @@ type JsonDataShape = {
   lastAnalyzed?: string;
   targetRole?: string;
   notes?: string;
+  pros?: string[]; // optional
+  cons?: string[]; // optional
+  missingSkills?: string[]; // optional explicit missing skills
 };
 
 type ResumeRaw = {
   _id: string;
   filename: string;
-  sizeKB: number;
+  sizeKB?: number;
   fullText?: string;
   jsonData?: JsonDataShape;
-  uploadedById?: string;
   createdAt?: string | { $date?: string } | Date;
 };
 
+/* ------------------------------
+   Small helpers
+   ------------------------------ */
 function clamp(n: number, a = 0, b = 100) {
   return Math.max(a, Math.min(b, n));
 }
-
 function formatDateShort(s?: string | Date | { $date?: string }) {
+  if (!s) return "N/A";
   try {
-    if (!s) return "";
     const d = typeof s === "string" ? new Date(s) : (s as any).$date ? new Date((s as any).$date) : (s as Date);
     return d.toLocaleString();
   } catch {
@@ -108,142 +101,76 @@ function formatDateShort(s?: string | Date | { $date?: string }) {
   }
 }
 
-function LargeScoreCircle({ value, size = 120, stroke = 8 }: { value: number; size?: number; stroke?: number }) {
-  const radius = (size - stroke) / 2;
-  const c = 2 * Math.PI * radius;
-  const dash = (clamp(value) / 100) * c;
-  const center = size / 2;
+/* ------------------------------
+   Internal mini-components
+   ------------------------------ */
 
+function SkeletonCard({ className = "" }: { className?: string }) {
   return (
-    <div style={{ width: size, height: size }} className="flex items-center justify-center relative">
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <g transform={`translate(${center}, ${center})`}>
-          <circle r={radius} stroke="rgba(255,255,255,0.06)" strokeWidth={stroke} fill="transparent" />
-          <circle
-            r={radius}
-            stroke="#fff"
-            strokeWidth={stroke}
-            strokeLinecap="round"
-            strokeDasharray={`${dash} ${c - dash}`}
-            transform="rotate(-90)"
-            fill="transparent"
-          />
-        </g>
-      </svg>
-      <div className="absolute text-center pointer-events-none">
-        <div className="text-3xl font-semibold">{value}</div>
-        <div className="text-xs text-neutral-400">/ 100</div>
-      </div>
+    <div className={cn("animate-pulse bg-neutral-900 rounded-lg p-4", className)}>
+      <div className="h-6 bg-neutral-800 rounded w-1/3 mb-3" />
+      <div className="h-4 bg-neutral-800 rounded w-full mb-2" />
+      <div className="h-4 bg-neutral-800 rounded w-5/6" />
     </div>
   );
 }
 
-function MetricBar({ label, value }: { label: string; value: number }) {
-  const pct = clamp(value);
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-white">{label}</div>
-        <div className="text-sm font-medium text-white">{pct}%</div>
-      </div>
-      <div className="h-2 bg-neutral-800 rounded-full overflow-hidden">
-        <div className="h-2 bg-white" style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
-}
-
-function KeywordChip({ name, density, found }: { name: string; density?: number; found: boolean }) {
+function ScoreBadge({ value, label }: { value: number; label?: string }) {
+  const pct = clamp(Math.round(value));
+  const color = pct > 75 ? "text-emerald-400" : pct > 45 ? "text-amber-400" : "text-rose-400";
   return (
     <div className="flex items-center gap-3">
-      <div className={cn("w-3 h-3 rounded-full", found ? "bg-white" : "border border-white/40 bg-transparent")} />
-      <div className="text-sm">
-        <span className="text-white">{name}</span>
-        {typeof density !== "undefined" && <span className="text-neutral-400 text-xs"> ({density}%)</span>}
+      <div className="rounded-full w-12 h-12 bg-neutral-900 border border-neutral-800 flex items-center justify-center">
+        <div className={cn("text-lg font-semibold", color)}>{pct}</div>
       </div>
+      {label && <div className="text-sm text-neutral-400">{label}</div>}
     </div>
   );
 }
 
-function SuggestionRow({ s, onHighlight }: { s: Suggestion; onHighlight: (s: Suggestion) => void }) {
+function BulletList({ title, bullets }: { title: string; bullets: string[] }) {
   return (
-    <div className="p-3 rounded-md border border-neutral-800 bg-neutral-900 flex items-center justify-between gap-3">
-      <div className="flex items-start gap-3">
-        <div className="mt-1">
-          {s.priority === "High" ? <AlertTriangle className="h-5 w-5 text-white" /> : <Sparkles className="h-5 w-5 text-white/90" />}
-        </div>
-        <div>
-          <div className="text-sm text-white">{s.text}</div>
-          <div className="text-xs text-neutral-400 mt-1">Priority: {s.priority}</div>
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={() => onHighlight(s)}>
-          Highlight
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => alert("Apply (stub)")}>
-          Apply
-        </Button>
-      </div>
+    <div>
+      <div className="text-sm font-medium text-white mb-2">{title}</div>
+      <ul className="list-disc list-inside text-sm space-y-1 text-neutral-300">
+        {bullets.length > 0 ? bullets.map((b, i) => <li key={i}>{b}</li>) : <li className="text-neutral-500 italic">No items</li>}
+      </ul>
     </div>
   );
 }
 
-function PreviewBlock({ children, targetId, className = "" }: { children: React.ReactNode; targetId?: string; className?: string }) {
-  return (
-    <div data-target-id={targetId} className={cn("mb-4 p-3 bg-white rounded shadow-sm text-black", className)} style={{ minHeight: 48 }}>
-      {children}
-    </div>
-  );
+function CompactBadge({ children }: { children: React.ReactNode }) {
+  return <span className="text-xs px-2 py-1 rounded bg-neutral-800 text-neutral-200">{children}</span>;
 }
 
-export default function ResumeAnalysisPage() {
+/* ------------------------------
+   Main Page
+   ------------------------------ */
+
+export default function ResumeRedesignPage() {
   const router = useRouter();
   const pathname = usePathname();
-  const resumeId = pathname.split("/").pop() ?? "";
+  const resumeId = pathname?.split("/").pop() ?? "";
 
+  // states
   const [targetRole, setTargetRole] = useState<string>("");
-  const [activeSuggestion, setActiveSuggestion] = useState<string | null>(null);
-  const previewRef = useRef<HTMLDivElement | null>(null);
-  const highlightTimerRef = useRef<number | null>(null);
+  const [activeSuggestionId, setActiveSuggestionId] = useState<string | null>(null);
 
-  // fetch the resume - rawData should match what you pasted
+  // fetch resume using trpc (adapt to your router)
   const { data: rawData, isLoading, isError } = trpc.resume.get.useQuery({ resumeId }, { enabled: !!resumeId });
-
-  // Normalize json data and provide strong typed defaults
+  // fallback normalized object
   const jsonData = useMemo<JsonDataShape>(() => {
     const jd = (rawData as ResumeRaw | undefined)?.jsonData ?? {};
-    // normalize path -> previewUrl
-    const path = jd.path ?? jd["path"] ?? jd.previewUrl ?? null;
-    // convert backslashes to forward slashes if needed
-    let normalizedPreview: string | null = null;
-    if (typeof path === "string") {
-      // if path looks like uploads\123-file.pdf convert to /uploads/123-file.pdf
-      normalizedPreview = path.replace(/\\\\/g, "/").replace(/\\/g, "/");
-      // If it already looks like a preview URL (starts with http or /) keep it
-      if (!normalizedPreview.startsWith("/") && !/^https?:\/\//.test(normalizedPreview)) {
-        normalizedPreview = `/${normalizedPreview}`;
-      }
-    } else {
-      normalizedPreview = null;
-    }
-
-    // ensure skills array: backend had a flattened array with headings — try to sanitize
-    const rawSkills = Array.isArray(jd.skills) ? jd.skills : [];
-    // heuristic: filter out entries that are headings like "PROJECTS" or very short tokens
-    const skills = rawSkills.filter((s: string) => typeof s === "string" && s.trim().length > 1 && !/^(PROJECTS|EXPERIENCE|SKILLS|EDUCATION)$/i.test(s.trim()));
-
     return {
-      name: jd.name ?? jd["title"] ?? rawData?.filename ?? "Unknown",
+      name: jd.name ?? rawData?.filename ?? "Unknown",
       email: jd.email,
       phone: jd.phone,
-      summary: jd.summary ?? jd?.summary?.trim() ?? rawData?.fullText?.slice(0, 300) ?? "",
-      skills,
+      summary: jd.summary ?? "",
+      skills: Array.isArray(jd.skills) ? jd.skills : [],
       experience: Array.isArray(jd.experience) ? jd.experience : [],
       projects: Array.isArray(jd.projects) ? jd.projects : [],
       education: Array.isArray(jd.education) ? jd.education : [],
-      path: jd.path ?? undefined,
-      previewUrl: normalizedPreview,
+      previewUrl: jd.previewUrl ?? null,
       score: jd.score ?? 0,
       jobMatchScore: jd.jobMatchScore ?? 0,
       keywords: Array.isArray(jd.keywords) ? jd.keywords : [],
@@ -253,112 +180,81 @@ export default function ResumeAnalysisPage() {
       lastAnalyzed: jd.lastAnalyzed ?? undefined,
       targetRole: jd.targetRole ?? undefined,
       notes: jd.notes ?? undefined,
+      pros: Array.isArray(jd.pros) ? jd.pros : [],
+      cons: Array.isArray(jd.cons) ? jd.cons : [],
+      missingSkills: Array.isArray(jd.missingSkills) ? jd.missingSkills : [],
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawData]);
 
   useEffect(() => {
     if (jsonData.targetRole) setTargetRole(jsonData.targetRole);
   }, [jsonData.targetRole]);
 
-  useEffect(() => {
-    return () => {
-      if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
-    };
-  }, []);
+  // small refs
+  const previewRef = useRef<HTMLDivElement | null>(null);
 
-  // safe fallback object for rendering while data is ready
-  const dataSafe = {
-    title: rawData?.filename ?? jsonData.name ?? "Resume",
-    uploadedAt: formatDateShort((rawData as any)?.createdAt ?? (rawData as any)?.createdAt?.$date ?? new Date()),
-    score: jsonData.score ?? 0,
-    jobMatchScore: jsonData.jobMatchScore ?? 0,
-    status: jsonData ? "Analyzed" : "Pending",
-    keywords: jsonData.keywords ?? [],
-    metrics: jsonData.metrics ?? [],
-    suggestions: jsonData.suggestions ?? [],
-    timeline: jsonData.timeline ?? [],
-    lastAnalyzed: jsonData.lastAnalyzed ?? "N/A",
-    targetRole: jsonData.targetRole ?? (rawData as any)?.jsonData?.targetRole ?? "",
-    summary: jsonData.summary ?? "",
-    skills: jsonData.skills ?? [],
-    experience: jsonData.experience ?? [],
-    projects: jsonData.projects ?? [],
-    education: jsonData.education ?? [],
-    previewUrl: jsonData.previewUrl ?? null,
-    fullText: (rawData as any)?.fullText ?? "",
-    notes: jsonData.notes ?? "",
-  };
-
+  // derived values
   const keywordMatchPercent = useMemo(() => {
-    const total = (dataSafe.keywords?.length || 1);
-    const matched = (dataSafe.keywords ?? []).filter((k: any) => k.found).length;
-    return Math.round((matched / total) * 100);
-  }, [dataSafe.keywords]);
+    const keywords = jsonData.keywords ?? [];
+    if (keywords.length === 0) return 0;
+    const matched = keywords.filter((k) => k.found).length;
+    return Math.round((matched / keywords.length) * 100);
+  }, [jsonData.keywords]);
 
-  const chartKeywordsData = useMemo(() => {
-    return {
-      labels: (dataSafe.keywords ?? []).map((k: any) => k.name ?? ""),
-      datasets: [
-        {
-          label: "Keyword density",
-          data: (dataSafe.keywords ?? []).map((k: any) => k.density ?? 0),
-          borderColor: "#fff",
-          backgroundColor: "rgba(255,255,255,0.06)",
-          tension: 0.3,
-          pointRadius: 2,
-        },
-      ],
-    };
-  }, [dataSafe.keywords]);
-
-  function highlightSuggestion(s: Suggestion) {
-    setActiveSuggestion(s.id);
-    const container = previewRef.current;
-    if (!container) return;
-
-    const target = container.querySelector<HTMLElement>(`[data-target-id="${s.targetId}"]`);
-    if (!target) {
-      container.scrollTo({ top: 0, behavior: "smooth" });
-      setActiveSuggestion(null);
-      return;
+  // actions
+  function handleShare() {
+    if (navigator.share) {
+      navigator
+        .share({ title: jsonData.name ?? "Resume", url: window.location.href })
+        .catch(() => navigator.clipboard?.writeText(window.location.href));
+    } else {
+      navigator.clipboard?.writeText(window.location.href);
     }
-
-    const containerRect = container.getBoundingClientRect();
-    const targetRect = target.getBoundingClientRect();
-    const currentScroll = container.scrollTop;
-    const offset = targetRect.top - containerRect.top + currentScroll - 24;
-    container.scrollTo({ top: offset, behavior: "smooth" });
-
-    target.classList.add("resume-highlight-flash");
-
-    if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
-    highlightTimerRef.current = window.setTimeout(() => {
-      target.classList.remove("resume-highlight-flash");
-      setActiveSuggestion(null);
-    }, 2200);
+  }
+  function handleDownload() {
+    // stub - replace with actual download route
+    const url = jsonData.previewUrl ?? `/api/resumes/${resumeId}/download`;
+    window.open(url, "_blank");
+  }
+  function scrollToPreviewSection(id?: string) {
+    if (!previewRef.current || !id) return;
+    const el = previewRef.current.querySelector<HTMLElement>(`[data-target-id="${id}"]`);
+    if (!el) return;
+    previewRef.current.scrollTo({ top: el.offsetTop - 24, behavior: "smooth" });
+    el.classList.add("resume-redesign-highlight");
+    setTimeout(() => el.classList.remove("resume-redesign-highlight"), 1800);
   }
 
-  const highlightCSS = `
-    @keyframes resumeFlash {
-      0% { box-shadow: 0 0 0 0 rgba(255,255,255,0.00); border-color: rgba(255,255,255,0.04); }
-      30% { box-shadow: 0 0 0 6px rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.18); }
-      60% { box-shadow: 0 0 0 10px rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.08); }
-      100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.00); border-color: rgba(255,255,255,0.06); }
-    }
-    .resume-highlight-flash { animation: resumeFlash 2s ease-in-out forwards; border-style: dashed !important; border-width: 1px !important; border-color: rgba(255,255,255,0.12) !important; }
-  `;
-
+  /* ------------------------------
+     Render: loading / error states
+     ------------------------------ */
   if (isLoading || !rawData) {
     return (
-      <div className="min-h-screen bg-black text-white p-8 flex items-center justify-center">
-        <style>{highlightCSS}</style>
-        <div className="text-center">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-neutral-900 border border-neutral-700 mb-4">
-            <Sparkles className="h-8 w-8 text-white/90" />
+      <div className="min-h-screen bg-black text-white p-8">
+        <style>
+          {`
+          .resume-redesign-highlight { outline: 2px solid rgba(255,255,255,0.06); box-shadow: 0 4px 18px rgba(255,255,255,0.02); }
+        `}
+        </style>
+        <div className="max-w-[1100px] mx-auto">
+          <div className="flex items-center gap-4 mb-6">
+            <Button variant="ghost" size="sm" onClick={() => router.back()}>
+              <ArrowLeft className="h-4 w-4" /> Back
+            </Button>
+            <h1 className="text-2xl font-semibold">Resume — Loading</h1>
           </div>
-          <div className="text-xl font-semibold">Analyzing resume…</div>
-          <div className="text-neutral-400 mt-2">Preparing the detailed report — one sec.</div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-7 space-y-4">
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+            </div>
+            <div className="lg:col-span-5 space-y-4">
+              <SkeletonCard />
+              <SkeletonCard />
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -366,262 +262,352 @@ export default function ResumeAnalysisPage() {
 
   if (isError) {
     return (
-      <div className="min-h-screen bg-black text-white p-8 flex items-center justify-center">
-        <div className="text-center">
-          <AlertTriangle className="h-8 w-8 text-red-500 mx-auto mb-4" />
-          <div className="text-xl font-semibold text-red-500">Error</div>
-          <div className="text-neutral-400 mt-2">Failed to load analysis. Please try again later.</div>
+      <div className="min-h-screen bg-black text-white p-8">
+        <div className="max-w-[900px] mx-auto text-center">
+          <AlertTriangle className="h-12 w-12 mx-auto text-rose-400 mb-4" />
+          <h2 className="text-2xl font-semibold">Failed to load resume</h2>
+          <p className="text-neutral-400 mt-2">Something went wrong fetching the resume. Try refreshing or come back later.</p>
+          <div className="mt-6 flex justify-center gap-3">
+            <Button onClick={() => location.reload()}>Retry</Button>
+            <Button variant="ghost" onClick={() => router.push("/workspace")}>
+              Back
+            </Button>
+          </div>
         </div>
       </div>
     );
   }
 
-  // determine preview display: image if previewUrl present and image-like; otherwise show file fallback
-  const previewUrl = dataSafe.previewUrl;
-  const isPreviewImage = !!previewUrl && /\.(png|jpg|jpeg|webp|svg)$/i.test(previewUrl);
+  /* ------------------------------
+     Main Layout
+     ------------------------------ */
+  const dataSafe = {
+    title: (rawData as ResumeRaw)?.filename ?? jsonData.name ?? "Resume",
+    uploadedAt: formatDateShort((rawData as any)?.createdAt ?? new Date()),
+    score: jsonData.score ?? 0,
+    jobMatch: jsonData.jobMatchScore ?? 0,
+    keywords: jsonData.keywords ?? [],
+    metrics: jsonData.metrics ?? [],
+    suggestions: jsonData.suggestions ?? [],
+    lastAnalyzed: jsonData.lastAnalyzed ?? "N/A",
+    previewUrl: jsonData.previewUrl ?? null,
+    summary: jsonData.summary ?? (rawData as any)?.fullText?.slice(0, 300) ?? "",
+  };
 
+  /* ------------------------------
+     UI
+     ------------------------------ */
   return (
     <div className="min-h-screen bg-black text-white p-8">
-      <style>{highlightCSS}</style>
+      <style>
+        {`
+          .resume-redesign-highlight { animation: resumePulse 1.8s ease-in-out; }
+          @keyframes resumePulse {
+            0% { box-shadow: 0 0 0 0 rgba(255,255,255,0.00); border-color: rgba(255,255,255,0.04);}
+            50% { box-shadow: 0 8px 24px rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.12); }
+            100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.00); }
+          }
+        `}
+      </style>
+
       <div className="max-w-[1200px] mx-auto">
-        <div className="flex items-start justify-between gap-6">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-6 mb-6">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight">Resume Analysis</h1>
-            <p className="text-neutral-400 mt-2">
-              <span className="font-medium">{dataSafe.title}</span> • Uploaded {dataSafe.uploadedAt} • Status:{" "}
-              <span className="text-white">{dataSafe.status}</span>
-            </p>
-            <p className="text-xs text-neutral-500 mt-1">Last analyzed: {dataSafe.lastAnalyzed}</p>
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" size="sm" onClick={() => router.back()}>
+                <ArrowLeft className="h-4 w-4" /> Back
+              </Button>
+              <h1 className="text-2xl font-semibold tracking-tight">{dataSafe.title}</h1>
+              <CompactBadge>{dataSafe.uploadedAt}</CompactBadge>
+            </div>
+            <p className="text-sm text-neutral-400 mt-2">Last analyzed: {dataSafe.lastAnalyzed}</p>
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="text-right hidden md:block">
-              <p className="text-xs text-neutral-400">Target Role</p>
-              <p className="font-medium">{targetRole || dataSafe.targetRole || "Not set"}</p>
+            <div className="hidden md:block text-right">
+              <div className="text-xs text-neutral-400">Target Role</div>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={targetRole}
+                  onChange={(e) => setTargetRole(e.target.value)}
+                  placeholder="e.g. Backend Engineer"
+                  className="w-64 bg-neutral-900 border-neutral-800"
+                />
+                <Button size="sm" variant="ghost" onClick={() => alert("Saved (stub)")}>
+                  <CheckCircle className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
 
-            <div>
-              <Avatar className="h-10 w-10 border border-neutral-700 bg-neutral-900">
-                {isPreviewImage && previewUrl ? (
-                  <AvatarImage src={previewUrl as string} alt="preview" onError={(e) => (e.currentTarget.src = "")} />
-                ) : (
-                  <AvatarFallback>
-                    <FileText className="h-5 w-5" />
-                  </AvatarFallback>
-                )}
-              </Avatar>
-            </div>
+            <Avatar className="h-10 w-10 border border-neutral-800 bg-neutral-900">
+              {dataSafe.previewUrl ? (
+                <AvatarImage src={dataSafe.previewUrl} alt="preview" onError={(e) => (e.currentTarget.src = "")} />
+              ) : (
+                <AvatarFallback>
+                  <FileText className="h-5 w-5" />
+                </AvatarFallback>
+              )}
+            </Avatar>
 
             <div className="flex items-center gap-2">
-              <Button variant="ghost" onClick={() => navigator.clipboard?.writeText(window.location.href)}>
+              <Button variant="ghost" onClick={handleShare}>
                 <Share2 className="h-4 w-4" /> <span className="hidden md:inline">Share</span>
               </Button>
-              <Button variant="default" onClick={() => alert("Download report (stub)")}>
+              <Button variant="default" onClick={handleDownload}>
                 <Download className="h-4 w-4" /> <span className="hidden md:inline">Download</span>
               </Button>
             </div>
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* LEFT: content */}
           <div className="lg:col-span-7 space-y-6">
-            {/* Score & Key Metrics */}
-            <Card className="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden">
+            {/* Summary Card */}
+            <Card className="bg-neutral-900 border border-neutral-800 rounded-2xl">
+              <CardHeader>
+                <CardTitle className="text-lg">Summary</CardTitle>
+                <CardDescription>Concise summary, bullets, and quick takeaways</CardDescription>
+              </CardHeader>
               <CardContent>
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-                  <div className="flex items-center gap-6">
-                    <LargeScoreCircle value={dataSafe.score} size={128} stroke={10} />
-                    <div>
-                      <div className="flex gap-10">
-                        <div>
-                          <div className="text-xs text-neutral-400">Job Match</div>
-                          <div className="text-2xl font-semibold">{dataSafe.jobMatchScore}%</div>
-                        </div>
+                <div className="flex items-start gap-6">
+                  <div className="flex-1">
+                    <p className="text-sm text-neutral-300 mb-3">{dataSafe.summary}</p>
 
-                        <div>
-                          <div className="text-xs text-neutral-400">Keyword Match</div>
-                          <div className="text-2xl font-semibold">{keywordMatchPercent}%</div>
+                    {/* automatic bullet extraction - naive split by sentences */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <div className="text-xs text-neutral-400 mb-2">Bulleted Highlights</div>
+                        <ul className="list-disc list-inside text-sm text-neutral-300 space-y-1">
+                          {dataSafe.summary
+                            .split(".")
+                            .map((s) => s.trim())
+                            .filter(Boolean)
+                            .slice(0, 6)
+                            .map((s, i) => (
+                              <li key={i}>{s}.</li>
+                            ))}
+                        </ul>
+                      </div>
+
+                      <div>
+                        <div className="text-xs text-neutral-400 mb-2">Quick Scorecard</div>
+                        <div className="flex items-center gap-4">
+                          <ScoreBadge value={dataSafe.score} label="Overall Score" />
+                          <div>
+                            <div className="text-xs text-neutral-400">Job Match</div>
+                            <div className="text-lg font-semibold">{dataSafe.jobMatch}%</div>
+                            <div className="text-xs text-neutral-500 mt-1">Keywords {keywordMatchPercent}%</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 border-t border-neutral-800 pt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <div className="text-sm font-medium text-white mb-2">Pros</div>
+                        <div className="text-sm text-neutral-300">
+                          {jsonData.pros?.length ? (
+                            <ul className="list-disc list-inside space-y-1">
+                              {jsonData.pros.map((p, i) => <li key={i}>{p}</li>)}
+                            </ul>
+                          ) : (
+                            <div className="text-neutral-500 italic">No explicit pros detected</div>
+                          )}
                         </div>
                       </div>
 
-                      <div className="mt-4 max-w-xl text-sm text-neutral-400">
-                        {dataSafe.notes || dataSafe.summary || "No summary available."}
+                      <div>
+                        <div className="text-sm font-medium text-white mb-2">Cons / Risks</div>
+                        <div className="text-sm text-neutral-300">
+                          {jsonData.cons?.length ? (
+                            <ul className="list-disc list-inside space-y-1">
+                              {jsonData.cons.map((c, i) => <li key={i}>{c}</li>)}
+                            </ul>
+                          ) : (
+                            <div className="text-neutral-500 italic">No major issues detected</div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-3 items-start md:items-end">
-                    <Label className="text-xs text-neutral-400">Targeting</Label>
-                    <Input
-                      value={targetRole}
-                      onChange={(e) => setTargetRole(e.target.value)}
-                      className="w-72 bg-neutral-900 border-neutral-800 text-white"
-                    />
-
-                    <div className="flex gap-2 mt-2">
-                      <Button variant="outline" onClick={() => alert("Edit resume (stub)")}>
-                        Edit Resume
-                      </Button>
-
-                      <Button variant="ghost" onClick={() => alert("Create optimized copy (stub)")}>
-                        Create Optimized Copy
-                      </Button>
-                    </div>
+                  {/* compact actions on the right of summary */}
+                  <div className="w-40 flex flex-col gap-3 items-stretch">
+                    <div className="text-xs text-neutral-400">Quick Actions</div>
+                    <Button size="sm" onClick={() => alert("Optimize (stub)")}>
+                      <Sparkles className="h-4 w-4 mr-2" /> Optimize
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => alert("Create ATS copy (stub)")}>
+                      ATS Copy
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => alert("Open editor (stub)")}>
+                      <Edit className="h-4 w-4 mr-2" /> Edit
+                    </Button>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Metrics */}
+            {/* Skills & Missing */}
             <Card className="bg-neutral-900 border border-neutral-800 rounded-2xl">
               <CardHeader>
-                <CardTitle className="text-lg">Detailed Score Breakdown</CardTitle>
-                <CardDescription>Granular scoring across key dimensions</CardDescription>
+                <CardTitle className="text-lg">Skills</CardTitle>
+                <CardDescription>Skills present, missing, and suggestions</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {dataSafe.metrics.length > 0 ? (
-                    dataSafe.metrics.map((m) => (
-                      <div key={m.label} className="p-4 bg-neutral-900 border border-neutral-800 rounded-lg">
-                        <MetricBar label={m.label} value={m.value} />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <div className="text-xs text-neutral-400 mb-2">Present</div>
+                    <div className="flex flex-wrap gap-2">
+                      {(jsonData.skills ?? []).length ? (
+                        jsonData.skills!.map((s, i) => (
+                          <span key={i} className="text-xs px-2 py-1 rounded bg-neutral-800/60">
+                            {s}
+                          </span>
+                        ))
+                      ) : (
+                        <div className="text-neutral-500 italic">No skills detected</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs text-neutral-400 mb-2">Missing (Model Suggests)</div>
+                    <div className="flex flex-wrap gap-2">
+                      {(jsonData.missingSkills ?? []).length ? (
+                        jsonData.missingSkills!.map((s, i) => (
+                          <span key={i} className="text-xs px-2 py-1 rounded bg-rose-900/40 text-rose-200">
+                            {s}
+                          </span>
+                        ))
+                      ) : (
+                        <div className="text-neutral-500 italic">No missing skills suggested</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs text-neutral-400 mb-2">Keyword Match</div>
+                    <div className="text-sm font-semibold">{keywordMatchPercent}%</div>
+                    <div className="text-xs text-neutral-500 mt-1">Keywords found vs required</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Experience condensed */}
+            <Card className="bg-neutral-900 border border-neutral-800 rounded-2xl">
+              <CardHeader>
+                <CardTitle className="text-lg">Experience</CardTitle>
+                <CardDescription>Condensed achievements & impact bullets</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {(jsonData.experience ?? []).length ? (
+                    (jsonData.experience ?? []).slice(0, 4).map((exp: any, i: number) => (
+                      <div key={i} className="p-3 bg-neutral-950/10 rounded-md border border-neutral-800">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-medium">{exp.role ?? exp.title ?? "Role"}</div>
+                            <div className="text-xs text-neutral-500">{exp.company ?? ""} • {exp.start ?? ""} {exp.end ? `– ${exp.end}` : ""}</div>
+                          </div>
+                          <div className="text-xs text-neutral-400">{exp.location ?? ""}</div>
+                        </div>
+                        <div className="text-sm text-neutral-300 mt-2">
+                          {Array.isArray(exp.achievements) ? (
+                            <ul className="list-disc list-inside space-y-1">
+                              {exp.achievements.slice(0, 3).map((a: string, j: number) => <li key={j}>{a}</li>)}
+                            </ul>
+                          ) : exp.description ? (
+                            <p>{exp.description}</p>
+                          ) : null}
+                        </div>
                       </div>
                     ))
                   ) : (
-                    <div className="text-neutral-400">No metric data available.</div>
+                    <div className="text-neutral-500 italic">No experience data</div>
                   )}
                 </div>
               </CardContent>
             </Card>
 
-            {/* Keyword Optimization */}
+            {/* Suggestions */}
             <Card className="bg-neutral-900 border border-neutral-800 rounded-2xl">
               <CardHeader>
-                <CardTitle className="text-lg">Targeted Keyword Optimization</CardTitle>
-                <CardDescription>Matched vs Missing keywords for the target role</CardDescription>
+                <CardTitle className="text-lg">Actionable Suggestions</CardTitle>
+                <CardDescription>Click to locate or auto-apply quick improvements</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="p-4 bg-neutral-900/60 rounded-lg border border-neutral-800">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <div className="text-sm font-semibold text-white">Matched Keywords</div>
-                        <div className="text-xs text-neutral-400">Keywords present in resume</div>
-                      </div>
-
-                      <div className="text-xs text-neutral-400">{(dataSafe.keywords || []).filter((k: any) => k.found).length} found</div>
-                    </div>
-
-                    <div className="space-y-3">
-                      {(dataSafe.keywords || []).filter((k: any) => k.found).map((k: any) => (
-                        <div key={k.name} className="flex items-center justify-between">
-                          <KeywordChip name={k.name} density={k.density} found={true} />
-                          <div className="text-xs text-neutral-400">{k.density ?? 0}%</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-neutral-900/60 rounded-lg border border-neutral-800">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <div className="text-sm font-semibold text-white">Missing Keywords</div>
-                        <div className="text-xs text-neutral-400">Keywords to add</div>
-                      </div>
-
-                      <div className="text-xs text-neutral-400">{(dataSafe.keywords || []).filter((k: any) => !k.found).length} missing</div>
-                    </div>
-
-                    <div className="space-y-3">
-                      {(dataSafe.keywords || []).filter((k: any) => !k.found).map((k: any) => (
-                        <div key={k.name} className="flex items-center justify-between">
-                          <KeywordChip name={k.name} density={k.density} found={false} />
-                          <div className="text-xs text-neutral-400">—</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-6">
-                  <div className="text-sm text-neutral-400 mb-2">Density Heatmap</div>
-                  <div className="w-full h-36 bg-[#111111] border border-neutral-800 rounded-md flex items-center justify-center text-sm text-neutral-500">
-                    Density Heatmap (thumbnail)
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Actionable Suggestions */}
-            <Card className="bg-neutral-900 border border-neutral-800 rounded-2xl">
-              <CardHeader>
-                <CardTitle className="text-lg">Actionable Feedback & Suggestions</CardTitle>
-                <CardDescription>Click a suggestion to highlight the relevant location in the preview</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-3 mb-4">
-                  <button className="px-3 py-1 rounded-md text-sm bg-white/6">Content & Impact</button>
-                  <button className="px-3 py-1 rounded-md text-sm text-neutral-300">Structure & Format</button>
-                  <button className="px-3 py-1 rounded-md text-sm text-neutral-300">Grammar & Tone</button>
-                </div>
-
                 <div className="space-y-3">
-                  {dataSafe.suggestions.length > 0 ? (
-                    dataSafe.suggestions.map((s: Suggestion) => <SuggestionRow key={s.id} s={s} onHighlight={highlightSuggestion} />)
+                  {(dataSafe.suggestions ?? []).length ? (
+                    (dataSafe.suggestions ?? []).map((s: Suggestion) => (
+                      <div key={s.id} className="p-3 rounded-md border border-neutral-800 flex items-center justify-between">
+                        <div>
+                          <div className="text-sm text-white">{s.text}</div>
+                          <div className="text-xs text-neutral-400 mt-1">Priority: {s.priority ?? "Medium"}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" variant="ghost" onClick={() => { setActiveSuggestionId(s.id); if (s.targetId) scrollToPreviewSection(s.targetId); }}>
+                            Highlight
+                          </Button>
+                          <Button size="sm" onClick={() => alert("Apply suggestion (stub)")}>Apply</Button>
+                        </div>
+                      </div>
+                    ))
                   ) : (
-                    <div className="text-neutral-400">No suggestions available.</div>
+                    <div className="text-neutral-500 italic">No suggestions</div>
                   )}
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* RIGHT COLUMN: Preview, Actions, Timeline */}
+          {/* RIGHT: preview + timeline + quick meta */}
           <div className="lg:col-span-5 space-y-6">
+            {/* Preview */}
             <Card className="bg-[#0b0b0b] border border-neutral-800 rounded-2xl overflow-hidden">
               <CardHeader>
-                <CardTitle className="text-lg">Resume Preview</CardTitle>
-                <CardDescription>Click a suggestion to locate and highlight the relevant section</CardDescription>
+                <CardTitle className="text-lg">Preview</CardTitle>
+                <CardDescription>Click suggestions to jump to the related section</CardDescription>
               </CardHeader>
-
               <CardContent className="p-0">
-                <div className="h-[640px] bg-[#0b0b0b] border-t border-neutral-800 flex">
-                  <div ref={previewRef} className="w-2/3 h-full overflow-auto p-6 bg-[#111111] border-r border-neutral-800">
-                    <div className="mx-auto max-w-[720px]">
-                      {/* Build preview from backend if available; otherwise fall back to fullText split */}
-                      <PreviewBlock targetId="preview-header">
+                <div className="h-[620px] bg-[#0b0b0b] border-t border-neutral-800 flex">
+                  <div ref={previewRef} className="w-2/3 h-full overflow-auto p-6 bg-[#0f0f0f] border-r border-neutral-800">
+                    <div className="mx-auto max-w-[680px]">
+                      <div data-target-id="preview-header" className="mb-4 p-3 bg-white rounded text-black">
                         <h2 className="text-xl font-semibold">{jsonData.name ?? dataSafe.title}</h2>
-                        <p className="text-sm text-neutral-700">{jsonData.summary ? jsonData.summary.split("\n")[0] : ""}</p>
-                      </PreviewBlock>
+                        <p className="text-sm text-neutral-700">{jsonData.email ?? ""} {jsonData.phone ? `• ${jsonData.phone}` : ""}</p>
+                      </div>
 
                       {jsonData.summary ? (
-                        <PreviewBlock targetId="preview-summary">
+                        <div data-target-id="preview-summary" className="mb-4 p-3 bg-white rounded text-black">
                           <h3 className="font-semibold">Summary</h3>
                           <p className="text-sm">{jsonData.summary}</p>
-                        </PreviewBlock>
-                      ) : dataSafe.fullText ? (
-                        <PreviewBlock targetId="preview-summary">
-                          <h3 className="font-semibold">Summary</h3>
-                          <p className="text-sm">{dataSafe.fullText.slice(0, 500)}</p>
-                        </PreviewBlock>
+                        </div>
                       ) : null}
 
                       {jsonData.experience && jsonData.experience.length > 0 ? (
-                        <PreviewBlock targetId="preview-experience">
+                        <div data-target-id="preview-experience" className="mb-4 p-3 bg-white rounded text-black">
                           <h3 className="font-semibold">Experience</h3>
                           <ul className="list-disc ml-5 text-sm space-y-2">
                             {jsonData.experience.map((exp: any, i: number) => (
                               <li key={i} data-target-id={`exp-${i}`}>
                                 <div className="font-medium">{exp.role ?? exp.title ?? exp.company ?? "Role"}</div>
                                 <div className="text-xs text-neutral-500">{exp.company ?? ""} {exp.start ? `• ${exp.start}` : ""} {exp.end ? `– ${exp.end}` : ""}</div>
-                                {Array.isArray(exp.achievements) ? <ul className="list-disc ml-5 text-sm">{exp.achievements.map((a: any, j: number) => <li key={j}>{a}</li>)}</ul> : exp.description ? <p className="text-sm">{exp.description}</p> : null}
+                                {Array.isArray(exp.achievements) ? (
+                                  <ul className="list-disc ml-5 text-sm">{exp.achievements.map((a: any, j: number) => <li key={j}>{a}</li>)}</ul>
+                                ) : exp.description ? <p className="text-sm">{exp.description}</p> : null}
                               </li>
                             ))}
                           </ul>
-                        </PreviewBlock>
+                        </div>
                       ) : null}
 
                       {jsonData.projects && jsonData.projects.length > 0 ? (
-                        <PreviewBlock targetId="preview-projects">
+                        <div data-target-id="preview-projects" className="mb-4 p-3 bg-white rounded text-black">
                           <h3 className="font-semibold">Projects</h3>
                           <div className="space-y-2">
                             {jsonData.projects.map((p: any, i: number) => (
@@ -631,22 +617,20 @@ export default function ResumeAnalysisPage() {
                               </div>
                             ))}
                           </div>
-                        </PreviewBlock>
+                        </div>
                       ) : null}
 
                       {jsonData.skills && jsonData.skills.length > 0 ? (
-                        <PreviewBlock targetId="preview-skills">
+                        <div data-target-id="preview-skills" className="mb-4 p-3 bg-white rounded text-black">
                           <h3 className="font-semibold">Skills</h3>
                           <div className="flex flex-wrap gap-2">
-                            {jsonData.skills.map((sk: string, i: number) => (
-                              <span key={i} className="text-xs px-2 py-1 rounded bg-neutral-800/40">{sk}</span>
-                            ))}
+                            {jsonData.skills.map((sk: string, i: number) => <span key={i} className="text-xs px-2 py-1 rounded bg-neutral-200/60 text-black">{sk}</span>)}
                           </div>
-                        </PreviewBlock>
+                        </div>
                       ) : null}
 
                       {jsonData.education && jsonData.education.length > 0 ? (
-                        <PreviewBlock targetId="preview-education">
+                        <div data-target-id="preview-education" className="mb-4 p-3 bg-white rounded text-black">
                           <h3 className="font-semibold">Education</h3>
                           <div className="text-sm">
                             {jsonData.education.map((e: any, i: number) => (
@@ -656,31 +640,27 @@ export default function ResumeAnalysisPage() {
                               </div>
                             ))}
                           </div>
-                        </PreviewBlock>
+                        </div>
                       ) : null}
                     </div>
                   </div>
 
-                  <div className="w-1/3 h-full p-4 flex flex-col gap-4">
+                  <div className="w-1/3 h-full p-4 flex flex-col gap-3">
                     <div>
                       <div className="text-xs text-neutral-400">Document</div>
                       <div className="font-medium">{dataSafe.title}</div>
                     </div>
 
                     <div className="space-y-3">
-                      <Button variant="outline" className="w-full" onClick={() => alert("Download as PDF (stub)")}>
-                        Download as PDF
-                      </Button>
-                      <Button variant="default" className="w-full" onClick={() => alert("Save new version (stub)")}>
-                        Save New Version
-                      </Button>
+                      <Button variant="outline" className="w-full" onClick={handleDownload}>Download PDF</Button>
+                      <Button className="w-full" onClick={() => alert("Save version (stub)")}>Save New Version</Button>
                     </div>
 
                     <div className="mt-auto">
                       <div className="text-xs text-neutral-400 mb-2">Timeline</div>
                       <ol className="text-sm space-y-3">
-                        {dataSafe.timeline.length > 0 ? (
-                          dataSafe.timeline.map((t: TimelineEvent) => (
+                        {jsonData.timeline && jsonData.timeline.length ? (
+                          jsonData.timeline.map((t: TimelineEvent) => (
                             <li key={t.id} className="flex items-start gap-3">
                               <div className="mt-1">{t.completed ? <CheckCircle className="h-4 w-4 text-emerald-400" /> : <Clock className="h-4 w-4 text-neutral-500" />}</div>
                               <div>
@@ -690,7 +670,7 @@ export default function ResumeAnalysisPage() {
                             </li>
                           ))
                         ) : (
-                          <div className="text-neutral-400">No timeline events.</div>
+                          <div className="text-neutral-500 italic">No timeline events</div>
                         )}
                       </ol>
                     </div>
@@ -699,17 +679,38 @@ export default function ResumeAnalysisPage() {
               </CardContent>
             </Card>
 
-            <div className="flex items-center justify-between gap-4">
-              <div className="text-xs text-neutral-400">All changes are local. Use Save New Version to persist edits.</div>
-              <div className="flex items-center gap-3">
-                <Button variant="ghost" size="sm" onClick={() => router.push("/workspace")}>
-                  Back
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => alert("Open editor (stub)")}>
-                  Open Editor
-                </Button>
-              </div>
-            </div>
+            {/* Meta & Small Metrics */}
+            <Card className="bg-neutral-900 border border-neutral-800 rounded-2xl">
+              <CardHeader>
+                <CardTitle className="text-lg">Meta & Metrics</CardTitle>
+                <CardDescription>Compact insight and quick links</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 bg-neutral-950/10 rounded-md border border-neutral-800">
+                    <div className="text-xs text-neutral-400">Overall</div>
+                    <div className="text-lg font-semibold">{dataSafe.score}</div>
+                  </div>
+                  <div className="p-3 bg-neutral-950/10 rounded-md border border-neutral-800">
+                    <div className="text-xs text-neutral-400">Job Match</div>
+                    <div className="text-lg font-semibold">{dataSafe.jobMatch}%</div>
+                  </div>
+                  <div className="p-3 bg-neutral-950/10 rounded-md border border-neutral-800">
+                    <div className="text-xs text-neutral-400">Keywords</div>
+                    <div className="text-lg font-semibold">{keywordMatchPercent}%</div>
+                  </div>
+                  <div className="p-3 bg-neutral-950/10 rounded-md border border-neutral-800">
+                    <div className="text-xs text-neutral-400">Last Analyzed</div>
+                    <div className="text-sm">{jsonData.lastAnalyzed ?? "N/A"}</div>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex gap-2">
+                  <Button variant="ghost" onClick={() => router.push("/workspace")}>Back</Button>
+                  <Button variant="outline" onClick={() => alert("Share externally (stub)")}>External Share</Button>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </div>
       </div>
@@ -717,7 +718,10 @@ export default function ResumeAnalysisPage() {
   );
 }
 
-/* helper small components retained from your original file - optional exports for reuse */
+/* ------------------------------
+   Exports (small helpers that may be moved to shared lib)
+   ------------------------------ */
+
 export function MiniStat({ title, value, icon }: { title: string; value: string; icon?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3 p-3 bg-neutral-900 rounded-md border border-neutral-800">
@@ -729,25 +733,3 @@ export function MiniStat({ title, value, icon }: { title: string; value: string;
     </div>
   );
 }
-
-export function Panel({ title, description, children, className }: { title: string; description?: string; children: React.ReactNode; className?: string }) {
-  return (
-    <Card className={cn("bg-neutral-900 border border-neutral-800 rounded-2xl", className)}>
-      <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
-        {description && <CardDescription className="text-neutral-400">{description}</CardDescription>}
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
-  );
-}
-
-export const Blocks = {
-  LargeScoreCircle,
-  MetricBar,
-  KeywordChip,
-  SuggestionRow,
-  PreviewBlock,
-  MiniStat,
-  Panel,
-};

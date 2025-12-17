@@ -21,6 +21,23 @@ model User {
   applications    Application[]
   plan            UserPlan?
   usageMetrics    UsageMetrics[]
+  onboarding      OnboardingProgress?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+}
+
+model OnboardingProgress {
+  id              String          @id @default(cuid()) @map("_id")
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId          String          @unique
+
+  uploadedResume  Boolean         @default(false)
+  completedFirstAnalysis Boolean  @default(false)
+  savedJobDescription Boolean     @default(false)
+  viewedProgress  Boolean         @default(false)
+  skipped         Boolean         @default(false)
+
+  completedAt     DateTime?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 }

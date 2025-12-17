@@ -13,9 +13,10 @@ import {
   Zap,
   Activity,
   Sparkles,
+  ArrowRight,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { QuickMatchDialog } from "@/components/QuickMatchDialog";
+import { OnboardingChecklist } from "@/components/OnboardingChecklist";
 import { PlanUsageCard } from "@/components/PlanUsageCard";
 
 type Resume = {
@@ -33,55 +34,43 @@ type Match = {
   createdAt: string;
 };
 
-export default function CommandCenterDashboard() {
+export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<{ name: string } | null>(null);
   const [resumes, setResumes] = useState<Resume[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
-  const [showQuickMatch, setShowQuickMatch] = useState(false);
 
-  // Fetch user profile and activity data
+  // Fetch data
   const userQuery = trpc.auth.me.useQuery();
   const resumeQuery = trpc.resume.list.useQuery();
-  const activityQuery = trpc.activity.getDashboardSummary.useQuery();
-  const recentMatchesQuery = trpc.activity.getRecentMatches.useQuery({ limit: 3 });
+  const recentMatchesQuery = trpc.activity.getRecentMatches.useQuery({ limit: 5 });
+  const onboardingQuery = trpc.onboarding.getStatus.useQuery();
 
-  const [insight, setInsight] = useState({
-    text: "Upload your resume to get started with AI-powered matching and analysis.",
-  });
+  const onboarding = onboardingQuery.data;
 
   useEffect(() => {
-    if (!userQuery.data) return;
-    setUser({ name: userQuery.data?.name || "User" });
+    if (userQuery.data) {
+      setUser({ name: userQuery.data?.name || "User" });
+    }
   }, [userQuery.data]);
 
   useEffect(() => {
-    if (!resumeQuery.data) return;
-    setResumes(resumeQuery.data as Resume[]);
+    if (resumeQuery.data) {
+      setResumes(resumeQuery.data as Resume[]);
+    }
   }, [resumeQuery.data]);
 
   useEffect(() => {
-    if (!recentMatchesQuery.data) return;
-    setMatches(
-      recentMatchesQuery.data.map((m: any) => ({
-        id: m.id,
-        resumeId: m.resumeId,
-        score: m.score,
-        summary: m.summary || "Analysis complete",
-        createdAt: m.createdAt,
-      }))
-    );
-  }, [recentMatchesQuery.data]);
-
-  useEffect(() => {
-    // Update insight based on recent matches
-    if (recentMatchesQuery.data && recentMatchesQuery.data.length > 0) {
-      const avgScore = Math.round(
-        recentMatchesQuery.data.reduce((sum: number, m: any) => sum + (m.score || 0), 0) / recentMatchesQuery.data.length
+    if (recentMatchesQuery.data) {
+      setMatches(
+        recentMatchesQuery.data.map((m: any) => ({
+          id: m.id,
+          resumeId: m.resumeId,
+          score: m.score,
+          summary: m.summary || "Analysis complete",
+          createdAt: m.createdAt,
+        }))
       );
-      setInsight({
-        text: `Your recent matches score ${avgScore}% on average. Keep refining your resume to match job descriptions more closely.`,
-      });
     }
   }, [recentMatchesQuery.data]);
 
@@ -101,10 +90,14 @@ export default function CommandCenterDashboard() {
     visible: { opacity: 1, y: 0, transition: { duration: 0.32 } },
   };
 
+  const isNewUser = onboarding?.isNew;
+  const hasResumes = resumes.length > 0;
+  const hasAnalyses = matches.length > 0;
+
   return (
     <main className="min-h-screen bg-black text-white p-8">
       <div className="max-w-5xl mx-auto space-y-8">
-        {/* HEADER: Greeting + CTAs */}
+        {/* HEADER */}
         <motion.header
           initial="hidden"
           animate="visible"
@@ -113,12 +106,14 @@ export default function CommandCenterDashboard() {
         >
           <div className="flex-1">
             <h1 className="text-4xl font-semibold tracking-tight">
-              Good evening, <span className="text-neutral-400">{user?.name || "User"}</span>
+              Welcome back, <span className="text-neutral-400">{user?.name || "User"}</span>
             </h1>
             <p className="text-sm text-neutral-500 mt-2">
-              {resumes.length === 0
-                ? "Ready to upload your first resume?"
-                : `You have ${resumes.length} resume${resumes.length !== 1 ? "s" : ""}. Ready to match?`}
+              {isNewUser
+                ? "Let's get your resume ready for the world"
+                : hasResumes
+                ? `You're on track. Keep analyzing and improving.`
+                : "Ready to upload your first resume?"}
             </p>
           </div>
 
@@ -128,37 +123,85 @@ export default function CommandCenterDashboard() {
           </Avatar>
         </motion.header>
 
-        {/* PRIMARY CTAs */}
-        <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={fadeUp}
-          className="flex gap-3"
-        >
-          <Button
-            onClick={() => setShowQuickMatch(true)}
-            className="bg-white text-black hover:bg-neutral-200 rounded-lg"
-          >
-            <Zap className="h-4 w-4 mr-2" />
-            Quick Match
-          </Button>
-          <Button
-            onClick={() => router.push("/resumes")}
-            variant="outline"
-            className="border-neutral-700 text-neutral-300 hover:bg-neutral-900 rounded-lg"
-          >
-            <Upload className="h-4 w-4 mr-2" />
-            Upload Resume
-          </Button>
-        </motion.div>
+        {/* ONBOARDING CHECKLIST (New Users Only) */}
+        {onboarding && onboarding.isOnboarding && (
+          <OnboardingChecklist status={onboarding} />
+        )}
 
-        {/* YOUR RESUMES SECTION */}
-        {resumes.length > 0 && (
+        {/* QUICK ACTIONS */}
+        {!isNewUser && (
+          <motion.div
+            initial="hidden"
+            animate="visible"
+            variants={fadeUp}
+            className="grid grid-cols-1 md:grid-cols-3 gap-4"
+          >
+            <Card className="bg-neutral-950 border border-neutral-800 hover:border-neutral-700 transition-colors rounded-2xl cursor-pointer group"
+              onClick={() => router.push("/resumes")}>
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="h-10 w-10 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center group-hover:bg-neutral-800">
+                    <FileText className="h-5 w-5 text-neutral-400" />
+                  </div>
+                </div>
+                <h3 className="font-semibold text-white mb-1">Resumes</h3>
+                <p className="text-sm text-neutral-400 mb-4">
+                  {resumes.length} {resumes.length === 1 ? "resume" : "resumes"}
+                </p>
+                <Button size="sm" className="bg-white text-black hover:bg-neutral-200 rounded-lg w-full">
+                  Manage
+                  <ArrowRight className="h-3 w-3 ml-2" />
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-neutral-950 border border-neutral-800 hover:border-neutral-700 transition-colors rounded-2xl cursor-pointer group"
+              onClick={() => router.push("/analyze")}>
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="h-10 w-10 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center group-hover:bg-neutral-800">
+                    <Zap className="h-5 w-5 text-yellow-400" />
+                  </div>
+                </div>
+                <h3 className="font-semibold text-white mb-1">Analyze</h3>
+                <p className="text-sm text-neutral-400 mb-4">
+                  Run match analysis
+                </p>
+                <Button size="sm" className="bg-white text-black hover:bg-neutral-200 rounded-lg w-full">
+                  Start
+                  <ArrowRight className="h-3 w-3 ml-2" />
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-neutral-950 border border-neutral-800 hover:border-neutral-700 transition-colors rounded-2xl cursor-pointer group"
+              onClick={() => router.push("/progress")}>
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="h-10 w-10 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center group-hover:bg-neutral-800">
+                    <Sparkles className="h-5 w-5 text-purple-400" />
+                  </div>
+                </div>
+                <h3 className="font-semibold text-white mb-1">Progress</h3>
+                <p className="text-sm text-neutral-400 mb-4">
+                  {hasAnalyses ? "View your trends" : "No data yet"}
+                </p>
+                <Button size="sm" className="bg-white text-black hover:bg-neutral-200 rounded-lg w-full" disabled={!hasAnalyses}>
+                  View
+                  <ArrowRight className="h-3 w-3 ml-2" />
+                </Button>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+
+        {/* RESUMES SECTION */}
+        {hasResumes && (
           <motion.section initial="hidden" animate="visible" variants={fadeUp}>
             <Card className="bg-neutral-950 border border-neutral-800 rounded-2xl">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-semibold">Your Resumes</h2>
+                  <h2 className="text-lg font-semibold">Recent Resumes</h2>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -170,11 +213,9 @@ export default function CommandCenterDashboard() {
                   </Button>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {resumes.slice(0, 3).map((resume) => {
-                    const lastMatch = matches.find(
-                      (m) => m.resumeId === resume.id
-                    );
+                    const lastMatch = matches.find((m) => m.resumeId === resume.id);
                     return (
                       <motion.div
                         key={resume.id}
@@ -183,12 +224,12 @@ export default function CommandCenterDashboard() {
                         className="flex items-center justify-between p-3 rounded-lg hover:bg-neutral-900 transition-colors cursor-pointer"
                         onClick={() => router.push(`/resumes/${resume.id}`)}
                       >
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 flex-1">
                           <div className="h-10 w-10 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center">
                             <FileText className="h-5 w-5 text-neutral-400" />
                           </div>
-                          <div>
-                            <p className="text-sm font-medium">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">
                               {resume.filename}
                             </p>
                             <p className="text-xs text-neutral-500">
@@ -197,14 +238,14 @@ export default function CommandCenterDashboard() {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 flex-shrink-0">
                           {lastMatch?.score && (
                             <div className="text-right">
                               <p className="text-sm font-semibold">
                                 {lastMatch.score}%
                               </p>
                               <p className="text-xs text-neutral-500">
-                                Best Score
+                                Best match
                               </p>
                             </div>
                           )}
@@ -229,7 +270,7 @@ export default function CommandCenterDashboard() {
         )}
 
         {/* RECENT ACTIVITY */}
-        {matches.length > 0 && (
+        {hasAnalyses && (
           <motion.section initial="hidden" animate="visible" variants={fadeUp}>
             <Card className="bg-neutral-950 border border-neutral-800 rounded-2xl">
               <CardContent className="p-6">
@@ -241,12 +282,12 @@ export default function CommandCenterDashboard() {
                     className="text-neutral-400 hover:text-white"
                     onClick={() => router.push("/history")}
                   >
-                    View History
+                    View All
                     <ChevronRight className="h-4 w-4 ml-1" />
                   </Button>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {matches.slice(0, 3).map((match, idx) => (
                     <motion.div
                       key={match.id}
@@ -255,10 +296,10 @@ export default function CommandCenterDashboard() {
                       transition={{ delay: idx * 0.04 }}
                       className="flex items-start gap-3 p-3 rounded-lg hover:bg-neutral-900 transition-colors"
                     >
-                      <div className="h-8 w-8 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center mt-1">
+                      <div className="h-8 w-8 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center flex-shrink-0 mt-0.5">
                         <Activity className="h-4 w-4 text-neutral-400" />
                       </div>
-                      <div className="flex-1">
+                      <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-neutral-100">
                           {match.summary}
                         </p>
@@ -267,8 +308,8 @@ export default function CommandCenterDashboard() {
                         </p>
                       </div>
                       {match.score && (
-                        <div className="text-right">
-                          <p className="text-sm font-semibold">
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-sm font-semibold text-green-400">
                             {match.score}%
                           </p>
                         </div>
@@ -284,37 +325,27 @@ export default function CommandCenterDashboard() {
         {/* PLAN USAGE */}
         <PlanUsageCard />
 
-        {/* INSIGHT SECTION */}
-        <motion.section initial="hidden" animate="visible" variants={fadeUp}>
-          <Card className="bg-neutral-950 border border-neutral-800 rounded-2xl">
-            <CardContent className="p-6">
-              <div className="flex gap-4">
-                <div className="h-10 w-10 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center flex-shrink-0">
-                  <Sparkles className="h-5 w-5 text-neutral-400" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-sm font-semibold mb-2">AI Insight</h3>
-                  <p className="text-sm text-neutral-400 leading-relaxed">
-                    {insight.text}
-                  </p>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-neutral-400 hover:text-white mt-3"
-                    onClick={() => router.push("/analyze")}
-                  >
-                    Get Recommendations
-                    <ChevronRight className="h-4 w-4 ml-1" />
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.section>
+        {/* EMPTY STATE FOR NEW USERS */}
+        {isNewUser && !onboarding?.isOnboarding && (
+          <motion.section
+            initial="hidden"
+            animate="visible"
+            variants={fadeUp}
+            className="text-center py-12"
+          >
+            <p className="text-neutral-400 mb-4">
+              You're all set! Start by uploading your first resume.
+            </p>
+            <Button
+              onClick={() => router.push("/resumes")}
+              className="bg-white text-black hover:bg-neutral-200 rounded-lg"
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              Upload Resume
+            </Button>
+          </motion.section>
+        )}
       </div>
-
-      {/* Quick Match Dialog */}
-      <QuickMatchDialog open={showQuickMatch} onOpenChange={setShowQuickMatch} />
     </main>
   );
 }

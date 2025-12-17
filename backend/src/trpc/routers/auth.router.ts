@@ -8,6 +8,7 @@ import {
   signRefreshToken,
   verifyAndRotateRefreshToken
 } from "../../services/auth.service";
+import { initializeOnboarding } from "../../services/onboarding.service";
 
 const signupSchema = z.object({
   firstname: z.string().min(1),
@@ -24,6 +25,7 @@ export const authRouter = router({
     const accessToken = signAccessToken(user.id);
     const refreshToken = signRefreshToken(user.id);
     await createSession(user.id, refreshToken);
+    await initializeOnboarding(user.id);
     return { user, accessToken, refreshToken };
   }),
 

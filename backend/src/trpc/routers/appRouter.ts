@@ -8,6 +8,7 @@ import { resumeVersionRouter } from "./resumeVersion.router";
 import { jobDescriptionRouter } from "./jobDescription.router";
 import { planRouter } from "./plan.router";
 import { activityRouter } from "./activity.router";
+import { onboardingRouter } from "./onboarding.router";
 
 export const appRouter = router({
   auth: authRouter,
@@ -18,7 +19,8 @@ export const appRouter = router({
   resumeVersion: resumeVersionRouter,
   jobDescription: jobDescriptionRouter,
   plan: planRouter,
-  activity: activityRouter
+  activity: activityRouter,
+  onboarding: onboardingRouter
 });
 
 export type AppRouter = typeof appRouter;

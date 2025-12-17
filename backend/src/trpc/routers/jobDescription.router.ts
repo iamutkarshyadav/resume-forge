@@ -35,7 +35,7 @@ export const jobDescriptionRouter = router({
     }),
 
   list: protectedProcedure
-    .input(z.object({ tag: z.string().optional() }))
+    .input(z.object({ tag: z.string().nullish() }))
     .query(async ({ input, ctx }) => {
       const user = (ctx.req as any).user;
       if (!user) throw new TRPCError({ code: "UNAUTHORIZED" });

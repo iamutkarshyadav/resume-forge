@@ -12,25 +12,20 @@ import {
 
 export const navSections = [
   {
-    title: "MY WORK",
+    title: "MAIN",
     links: [
       { href: "/dashboard", icon: Home, label: "Dashboard" },
+      { href: "/analyze", icon: BarChart2, label: "Analyze Resume" },
+      { href: "/history", icon: Clock, label: "Past Analyses" },
+    ],
+  },
+  {
+    title: "RESOURCES",
+    links: [
       { href: "/resumes", icon: FileText, label: "Resume Library" },
+      { href: "/job-descriptions", icon: Briefcase, label: "Job Library" },
       { href: "/versions", icon: GitBranch, label: "Version History" },
       { href: "/progress", icon: TrendingUp, label: "Progress" },
-    ],
-  },
-  {
-    title: "IMPROVE",
-    links: [
-      { href: "/analyze", icon: BarChart2, label: "Analyze for Job" },
-      { href: "/job-descriptions", icon: Briefcase, label: "Job Library" },
-    ],
-  },
-  {
-    title: "HISTORY",
-    links: [
-      { href: "/history", icon: Clock, label: "Past Analyses" },
     ],
   },
   {

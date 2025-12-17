@@ -18,6 +18,7 @@ model User {
   resumes         Resume[]
   analyses        MatchAnalysis[]
   jobDescriptions JobDescription[]
+  applications    Application[]
   plan            UserPlan?
   usageMetrics    UsageMetrics[]
   createdAt       DateTime        @default(now())
@@ -58,8 +59,8 @@ model Resume {
   fullText     String
   jsonData     Json?
 
-  uploadedBy   User?            @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
-  uploadedById String?
+  uploadedBy   User             @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  uploadedById String
 
   versions     ResumeVersion[]
   analyses     MatchAnalysis[]
@@ -114,6 +115,9 @@ model MatchAnalysis {
   jd              JobDescription? @relation(fields: [jdId], references: [id], onDelete: SetNull)
   jdId            String?
 
+  application     Application?    @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  applicationId   String?
+
   summary         String
   score           Int
   strengths       String[]
@@ -135,8 +139,8 @@ model MatchAnalysis {
 
 model JobDescription {
   id             String          @id @default(cuid()) @map("_id")
-  user           User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
-  userId         String?
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
 
   title          String          // Job title
   company        String?         // Company name
@@ -146,6 +150,30 @@ model JobDescription {
   keySkills      String[]        // Extracted top skills
 
   analyses       MatchAnalysis[]
+  applications   Application[]
+
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model Application {
+  id             String          @id @default(cuid()) @map("_id")
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
+
+  resume         Resume          @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  resumeId       String
+
+  resumeVersion  ResumeVersion?  @relation(fields: [resumeVersionId], references: [id], onDelete: SetNull)
+  resumeVersionId String?
+
+  jd             JobDescription @relation(fields: [jdId], references: [id], onDelete: Cascade)
+  jdId           String
+
+  analysis       MatchAnalysis?  @relation(fields: [analysisId], references: [id], onDelete: SetNull)
+  analysisId     String?
+
+  status         String          @default("draft")  // "draft", "ready", "applied", "rejected", "archived"
 
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt

@@ -43,8 +43,10 @@ type AnalysisResult = {
 
 export default function AnalyzeForJobPage() {
   const router = useRouter();
-  const [step, setStep] = useState<"select" | "paste" | "results">("select");
+  const [step, setStep] = useState<"select-resume" | "choose-jd" | "results">("select-resume");
+  const [jdMode, setJdMode] = useState<"paste" | "saved">("paste");
   const [selectedResumeId, setSelectedResumeId] = useState<string>("");
+  const [selectedJdId, setSelectedJdId] = useState<string>("");
   const [jdText, setJdText] = useState("");
   const [loading, setLoading] = useState(false);
   const [generatingResume, setGeneratingResume] = useState(false);
@@ -53,10 +55,12 @@ export default function AnalyzeForJobPage() {
   const [mounted, setMounted] = useState(false);
 
   const resumeQuery = trpc.resume.list.useQuery();
+  const jdQuery = trpc.jobDescription.list.useQuery({ tag: null });
   const analyzeMutation = trpc.match.analyzeResumeToJD.useMutation();
   const generateMutation = trpc.match.generateResumeForJD.useMutation();
 
   const resumes = resumeQuery.data || [];
+  const savedJds = jdQuery.data || [];
 
   // Pre-populate from URL params if available (only on client)
   useEffect(() => {
@@ -65,12 +69,20 @@ export default function AnalyzeForJobPage() {
       const params = new URLSearchParams(window.location.search);
       const resumeIdParam = params.get("resumeId");
       const jdTextParam = params.get("jdText");
+      const jdIdParam = params.get("jdId");
 
       if (resumeIdParam) setSelectedResumeId(resumeIdParam);
-      if (jdTextParam) setJdText(decodeURIComponent(jdTextParam));
+      if (jdTextParam) {
+        setJdText(decodeURIComponent(jdTextParam));
+        setJdMode("paste");
+      }
+      if (jdIdParam) {
+        setSelectedJdId(jdIdParam);
+        setJdMode("saved");
+      }
 
-      if (resumeIdParam && jdTextParam) {
-        setStep("paste");
+      if (resumeIdParam && (jdTextParam || jdIdParam)) {
+        setStep("choose-jd");
       }
     } catch (error) {
       console.error("Error reading URL params:", error);
@@ -78,8 +90,15 @@ export default function AnalyzeForJobPage() {
   }, []);
 
   const handleAnalyze = async () => {
-    if (!selectedResumeId || !jdText.trim()) {
-      alert("Please select a resume and paste a job description");
+    if (!selectedResumeId) {
+      alert("Please select a resume");
+      return;
+    }
+
+    const textToAnalyze = jdMode === "paste" ? jdText : savedJds.find(j => j.id === selectedJdId)?.fullText;
+
+    if (!textToAnalyze || !textToAnalyze.trim()) {
+      alert("Please provide a job description");
       return;
     }
 
@@ -87,7 +106,8 @@ export default function AnalyzeForJobPage() {
     try {
       const response = await analyzeMutation.mutateAsync({
         resumeId: selectedResumeId,
-        jdText: jdText.trim(),
+        jdText: textToAnalyze.trim(),
+        jdId: jdMode === "saved" ? selectedJdId : undefined,
       });
 
       setResult(response);
@@ -101,13 +121,16 @@ export default function AnalyzeForJobPage() {
   };
 
   const handleGenerateResume = async () => {
-    if (!selectedResumeId || !jdText.trim()) return;
+    if (!selectedResumeId) return;
+
+    const textToAnalyze = jdMode === "paste" ? jdText : savedJds.find(j => j.id === selectedJdId)?.fullText;
+    if (!textToAnalyze) return;
 
     setGeneratingResume(true);
     try {
       const response = await generateMutation.mutateAsync({
         resumeId: selectedResumeId,
-        jdText: jdText.trim(),
+        jdText: textToAnalyze.trim(),
       });
 
       setResult((prev) => ({
@@ -142,15 +165,21 @@ export default function AnalyzeForJobPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => router.back()}
+            onClick={() => {
+              if (step === "select-resume") {
+                router.back();
+              } else {
+                setStep("select-resume");
+              }
+            }}
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <h1 className="text-3xl font-semibold">Analyze for Job</h1>
+          <h1 className="text-3xl font-semibold">Analyze Resume</h1>
         </motion.header>
 
         {/* STEP 1: SELECT RESUME */}
-        {step === "select" && (
+        {step === "select-resume" && (
           <motion.section
             initial="hidden"
             animate="visible"
@@ -191,7 +220,7 @@ export default function AnalyzeForJobPage() {
                     </Select>
 
                     <Button
-                      onClick={() => setStep("paste")}
+                      onClick={() => setStep("choose-jd")}
                       disabled={!selectedResumeId}
                       className="w-full bg-white text-black hover:bg-neutral-200 rounded-lg"
                     >
@@ -205,8 +234,8 @@ export default function AnalyzeForJobPage() {
           </motion.section>
         )}
 
-        {/* STEP 2: PASTE JOB DESCRIPTION */}
-        {step === "paste" && (
+        {/* STEP 2: CHOOSE JOB DESCRIPTION */}
+        {step === "choose-jd" && (
           <motion.section
             initial="hidden"
             animate="visible"
@@ -214,19 +243,83 @@ export default function AnalyzeForJobPage() {
           >
             <Card className="bg-neutral-950 border border-neutral-800 rounded-2xl">
               <CardHeader>
-                <CardTitle>Step 2: Paste Job Description</CardTitle>
+                <CardTitle>Step 2: Choose a Job Description</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <Textarea
-                  placeholder="Paste the full job description here..."
-                  value={jdText}
-                  onChange={(e) => setJdText(e.target.value)}
-                  className="bg-neutral-900 border-neutral-800 text-white placeholder:text-neutral-600 rounded-lg min-h-48"
-                />
-
+              <CardContent className="space-y-6">
+                {/* Mode Toggle */}
                 <div className="flex gap-3">
                   <Button
-                    onClick={() => setStep("select")}
+                    variant={jdMode === "paste" ? "default" : "outline"}
+                    onClick={() => {
+                      setJdMode("paste");
+                      setSelectedJdId("");
+                    }}
+                    className="flex-1 rounded-lg"
+                  >
+                    Paste New
+                  </Button>
+                  <Button
+                    variant={jdMode === "saved" ? "default" : "outline"}
+                    onClick={() => {
+                      setJdMode("saved");
+                      setJdText("");
+                    }}
+                    className="flex-1 rounded-lg"
+                  >
+                    Use Saved
+                  </Button>
+                </div>
+
+                {/* Paste Mode */}
+                {jdMode === "paste" && (
+                  <div className="space-y-4">
+                    <Textarea
+                      placeholder="Paste the full job description here..."
+                      value={jdText}
+                      onChange={(e) => setJdText(e.target.value)}
+                      className="bg-neutral-900 border-neutral-800 text-white placeholder:text-neutral-600 rounded-lg min-h-48"
+                    />
+                  </div>
+                )}
+
+                {/* Saved Mode */}
+                {jdMode === "saved" && (
+                  <div className="space-y-4">
+                    {savedJds.length === 0 ? (
+                      <div className="p-4 rounded-lg bg-neutral-900 border border-neutral-800 text-center text-neutral-400">
+                        <p className="text-sm mb-3">No saved job descriptions yet.</p>
+                        <Button
+                          variant="ghost"
+                          onClick={() => router.push("/job-descriptions")}
+                          className="text-neutral-300"
+                        >
+                          Create one in Job Library
+                        </Button>
+                      </div>
+                    ) : (
+                      <Select
+                        value={selectedJdId}
+                        onValueChange={setSelectedJdId}
+                      >
+                        <SelectTrigger className="bg-neutral-900 border-neutral-800 text-white rounded-lg">
+                          <SelectValue placeholder="Choose a saved job description..." />
+                        </SelectTrigger>
+                        <SelectContent className="bg-neutral-900 border-neutral-800">
+                          {savedJds.map((jd: any) => (
+                            <SelectItem key={jd.id} value={jd.id}>
+                              {jd.title} {jd.company && `@ ${jd.company}`}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 pt-4">
+                  <Button
+                    onClick={() => setStep("select-resume")}
                     variant="outline"
                     className="border-neutral-700 text-neutral-300 rounded-lg"
                   >
@@ -234,7 +327,12 @@ export default function AnalyzeForJobPage() {
                   </Button>
                   <Button
                     onClick={handleAnalyze}
-                    disabled={!jdText.trim() || loading}
+                    disabled={
+                      loading ||
+                      !selectedResumeId ||
+                      (jdMode === "paste" && !jdText.trim()) ||
+                      (jdMode === "saved" && !selectedJdId)
+                    }
                     className="flex-1 bg-white text-black hover:bg-neutral-200 rounded-lg"
                   >
                     {loading ? (
@@ -255,12 +353,12 @@ export default function AnalyzeForJobPage() {
           </motion.section>
         )}
 
-        {/* STEP 3: RESULTS - 5-Section Analysis */}
+        {/* STEP 3: RESULTS */}
         {step === "results" && result && (
           <AnalysisResults
             data={result}
             onGenerateResume={handleGenerateResume}
-            onAnalyzeAnother={() => setStep("paste")}
+            onAnalyzeAnother={() => setStep("choose-jd")}
             generatingResume={generatingResume}
           />
         )}

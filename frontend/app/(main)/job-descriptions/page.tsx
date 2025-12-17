@@ -99,7 +99,7 @@ export default function JobDescriptionsPage() {
   };
 
   const handleAnalyzeWithJD = (jd: JobDescription) => {
-    router.push(`/analyze-jd?jdId=${jd.id}&title=${encodeURIComponent(jd.title)}`);
+    router.push(`/analyze?jdId=${jd.id}`);
   };
 
   const allTags = Array.from(

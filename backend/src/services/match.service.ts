@@ -11,9 +11,9 @@ export async function analyzeMatch(user: { id: string; role?: string }, resumeId
   if (!resume) throw new HttpError(404, "Resume not found");
 
   // Authorization: owner or admin
-  const ownerId = resume.uploadedById as string | undefined;
-  if (!ownerId) throw new HttpError(400, "Resume has no owner");
-  if (ownerId !== user.id && String(user.role || "").toUpperCase() !== "ADMIN") throw new HttpError(403, "Forbidden: you do not have access to this resume");
+  if (resume.uploadedById !== user.id && String(user.role || "").toUpperCase() !== "ADMIN") {
+    throw new HttpError(403, "Forbidden: you do not have access to this resume");
+  }
 
   let resumeText = (resume.fullText || "").trim();
   const resumeJson = (resume.jsonData as any) || {};
@@ -59,9 +59,10 @@ export async function generateForMatch(user: { id: string; role?: string }, resu
   const resume = await prisma.resume.findUnique({ where: { id: resumeId } });
   if (!resume) throw new HttpError(404, "Resume not found");
 
-  const ownerId = resume.uploadedById as string | undefined;
-  if (!ownerId) throw new HttpError(400, "Resume has no owner");
-  if (ownerId !== user.id && String(user.role || "").toUpperCase() !== "ADMIN") throw new HttpError(403, "Forbidden: you do not have access to this resume");
+  // Authorization: owner or admin
+  if (resume.uploadedById !== user.id && String(user.role || "").toUpperCase() !== "ADMIN") {
+    throw new HttpError(403, "Forbidden: you do not have access to this resume");
+  }
 
   let resumeText = (resume.fullText || "").trim();
   const resumeJson = (resume.jsonData as any) || {};

@@ -8,15 +8,20 @@ datasource db {
 }
 
 model User {
-  id            String          @id @default(cuid()) @map("_id")
-  email         String?         @unique
-  name          String?
-  passwordHash  String?         // null for OAuth users
-  role          Role            @default(USER)
-  accounts      Account[]
-  refreshTokens RefreshToken[]
-  resumes       Resume[]
-  createdAt     DateTime        @default(now())
+  id              String          @id @default(cuid()) @map("_id")
+  email           String?         @unique
+  name            String?
+  passwordHash    String?         // null for OAuth users
+  role            Role            @default(USER)
+  accounts        Account[]
+  refreshTokens   RefreshToken[]
+  resumes         Resume[]
+  analyses        MatchAnalysis[]
+  jobDescriptions JobDescription[]
+  plan            UserPlan?
+  usageMetrics    UsageMetrics[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 }
 
 model Account {
@@ -47,18 +52,41 @@ model RefreshToken {
 }
 
 model Resume {
-  id           String       @id @default(cuid()) @map("_id")
+  id           String           @id @default(cuid()) @map("_id")
   filename     String
   sizeKB       Float
   fullText     String
   jsonData     Json?
 
-  uploadedBy   User?        @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploadedBy   User?            @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
   uploadedById String?
 
-  createdAt    DateTime     @default(now())
+  versions     ResumeVersion[]
+  analyses     MatchAnalysis[]
+  feedbacks    Feedback[]
 
-  feedbacks    Feedback[]   // ✅ Back relation
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime?        @updatedAt
+}
+
+model ResumeVersion {
+  id              String          @id @default(cuid()) @map("_id")
+  resume          Resume          @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  resumeId        String
+
+  versionNumber   Int
+  title           String?         // User-given title
+  sourceType      String          // "upload", "ai_generated", "manual_edit"
+  sourceAnalysis  MatchAnalysis?  @relation(fields: [sourceAnalysisId], references: [id], onDelete: SetNull)
+  sourceAnalysisId String?        // If generated from an analysis
+
+  fullText        String
+  jsonData        Json?
+
+  scoreAtCreation Int?            // Score when this version was created
+  scoreImprovement Int?           // Delta from previous version
+
+  createdAt       DateTime        @default(now())
 }
 
 model Feedback {
@@ -77,17 +105,13 @@ enum Role {
   ADMIN
 }
 
-model JobDescription {
-  id            String   @id @default(cuid()) @map("_id")
-  uploadedById  String?
-  fullText      String
-  createdAt     DateTime @default(now())
-}
-
 model MatchAnalysis {
-  id              String   @id @default(cuid()) @map("_id")
+  id              String          @id @default(cuid()) @map("_id")
+  user            User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
   userId          String?
+  resume          Resume?         @relation(fields: [resumeId], references: [id], onDelete: SetNull)
   resumeId        String?
+  jd              JobDescription? @relation(fields: [jdId], references: [id], onDelete: SetNull)
   jdId            String?
 
   summary         String
@@ -99,5 +123,62 @@ model MatchAnalysis {
   generatedResume Json?
   jdText          String?
 
+  generatedVersions ResumeVersion[]
+
+  completenessScore Int?          // Resume completeness (0-100)
+  jdRealismScore    Int?          // JD realism detection (0-100)
+  hasKeywordStuffing Boolean @default(false)
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+}
+
+model JobDescription {
+  id             String          @id @default(cuid()) @map("_id")
+  user           User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId         String?
+
+  title          String          // Job title
+  company        String?         // Company name
+  fullText       String
+
+  tags           String[]        // ["Frontend", "Senior", "React", etc]
+  keySkills      String[]        // Extracted top skills
+
+  analyses       MatchAnalysis[]
+
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model UserPlan {
+  id              String   @id @default(cuid()) @map("_id")
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId          String   @unique
+
+  planType        String   @default("free")  // "free", "pro", "enterprise"
+  analysesPerMonth Int     @default(10)
+  savedJdsLimit   Int      @default(5)
+  aiGenerationsPerMonth Int @default(3)
+  exportModes     String[] @default(["pdf"]) // ["pdf", "docx", "ats", "recruiter"]
+
+  currentMonth    String?  // "2025-01" for tracking usage
   createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model UsageMetrics {
+  id                  String   @id @default(cuid()) @map("_id")
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId              String
+
+  month               String   // "2025-01"
+  analysesUsed        Int      @default(0)
+  aiGenerationsUsed   Int      @default(0)
+  jdsSaved            Int      @default(0)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([userId, month])
 }

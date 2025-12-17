@@ -12,7 +12,7 @@ export async function parseJDFile(file: Express.Multer.File) {
 export async function saveJobDescription(userId: string | undefined, fullText: string) {
   const jd = await prisma.jobDescription.create({
     data: {
-      uploadedById: userId ?? undefined,
+      userId: userId ?? undefined,
       fullText
     }
   });

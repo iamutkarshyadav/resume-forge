@@ -184,3 +184,97 @@ export async function generateResumeWithGemini(
     throw new HttpError(502, "Gemini API error", raw);
   }
 }
+
+function buildSkillExtractionPrompt(jdText: string) {
+  return [
+    "You are an expert recruiter and skills analyst.",
+    "Extract the top 10-15 required skills from this job description. Output STRICT JSON only.",
+    "Respond with exactly this key: skills (array of skill names).",
+    "Do not include markdown or explanations.",
+    "JOB_DESCRIPTION:",
+    jdText
+  ].join("\n");
+}
+
+export async function extractSkillsFromJD(jdText: string) {
+  const prompt = buildSkillExtractionPrompt(jdText);
+  const raw = await callGemini(prompt);
+  try {
+    const parsed = safeParseJsonFromText(raw);
+    return parsed;
+  } catch (e: any) {
+    return { skills: [] };
+  }
+}
+
+function buildCompletenessPrompt(resumeText: string) {
+  return [
+    "You are a resume quality analyzer.",
+    "Evaluate the completeness of this resume on a scale of 0-100.",
+    "Output STRICT JSON only.",
+    "Respond with exactly this key: score (0-100).",
+    "Do not include markdown or explanations.",
+    "RESUME:",
+    resumeText
+  ].join("\n");
+}
+
+export async function calculateCompletenessScore(resumeText: string) {
+  try {
+    const prompt = buildCompletenessPrompt(resumeText);
+    const raw = await callGemini(prompt);
+    const parsed = safeParseJsonFromText(raw);
+    const score = Math.max(0, Math.min(100, parseInt(parsed.score || 50)));
+    return score;
+  } catch (e: any) {
+    return 50; // Default middle score on error
+  }
+}
+
+function buildJDRealismPrompt(jdText: string) {
+  return [
+    "You are a job market analyzer.",
+    "Evaluate how realistic this job description is (not a scam, legitimate requirements).",
+    "Score 0-100 where 100 is highly realistic and 0 is likely fraudulent.",
+    "Output STRICT JSON only.",
+    "Respond with exactly this key: score (0-100).",
+    "Do not include markdown or explanations.",
+    "JOB_DESCRIPTION:",
+    jdText
+  ].join("\n");
+}
+
+export async function calculateJDRealismScore(jdText: string) {
+  try {
+    const prompt = buildJDRealismPrompt(jdText);
+    const raw = await callGemini(prompt);
+    const parsed = safeParseJsonFromText(raw);
+    const score = Math.max(0, Math.min(100, parseInt(parsed.score || 75)));
+    return score;
+  } catch (e: any) {
+    return 75; // Default on error
+  }
+}
+
+function buildKeywordStuffingPrompt(resumeText: string) {
+  return [
+    "You are a resume quality analyzer.",
+    "Detect if this resume contains keyword stuffing (excessive repetition of keywords to game ATS).",
+    "Output STRICT JSON only.",
+    "Respond with exactly this key: hasStuffing (boolean).",
+    "Do not include markdown or explanations.",
+    "RESUME:",
+    resumeText
+  ].join("\n");
+}
+
+export async function detectKeywordStuffing(resumeText: string) {
+  try {
+    const prompt = buildKeywordStuffingPrompt(resumeText);
+    const raw = await callGemini(prompt);
+    const parsed = safeParseJsonFromText(raw);
+    return parsed.hasStuffing === true;
+  } catch (e: any) {
+    return false;
+  }
+}

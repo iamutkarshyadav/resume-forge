@@ -1,13 +1,14 @@
 import type { NextConfig } from "next";
 
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
+
 const nextConfig: NextConfig = {
-  /* config options here */
   devIndicators: false,
   async rewrites() {
     return [
       {
         source: "/api/:path*",
-        destination: "http://localhost:4000/api/:path*",
+        destination: `${apiBaseUrl}/api/:path*`,
       },
     ];
   },

@@ -75,7 +75,7 @@ export async function verifyAndRotateRefreshToken(oldToken: string) {
       }
     }
 
-    if (!matchedId) throw new Error("Refresh token not recognized");
+    if (!matchedId) throw new HttpError(401, "Refresh token not recognized");
 
     await prisma.refreshToken.update({ where: { id: matchedId }, data: { revoked: true } });
 
@@ -84,8 +84,9 @@ export async function verifyAndRotateRefreshToken(oldToken: string) {
     const accessToken = signAccessToken(userId);
 
     return { userId, accessToken, refreshToken: newRefresh };
-  } catch (e) {
-    throw new Error("Invalid refresh token");
+  } catch (e: any) {
+    if (e instanceof HttpError) throw e;
+    throw new HttpError(401, "Invalid refresh token");
   }
 }
 

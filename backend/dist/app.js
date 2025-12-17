@@ -46,6 +46,7 @@ const rate_middleware_1 = require("./middleware/rate.middleware");
 const error_middleware_1 = require("./middleware/error.middleware");
 const env_1 = require("./utils/env");
 const restFile_controller_1 = require("./controller/restFile.controller");
+const jd_controller_1 = require("./controller/jd.controller");
 const jwt_middleware_1 = require("./middleware/jwt.middleware");
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
@@ -130,8 +131,28 @@ app.post("/api/v1/auth/login", express_1.default.json(), async (req, res, next) 
         next(err);
     }
 });
+app.post("/api/v1/auth/refresh", express_1.default.json(), async (req, res, next) => {
+    try {
+        const { refreshToken } = req.body || {};
+        if (!refreshToken || typeof refreshToken !== "string") {
+            return res.status(400).json({ error: "refreshToken is required" });
+        }
+        const { verifyAndRotateRefreshToken } = require("./services/auth.service");
+        const result = await verifyAndRotateRefreshToken(refreshToken);
+        res.json(result);
+    }
+    catch (err) {
+        next(err);
+    }
+});
+// REST JD + match endpoints
+app.post("/api/v1/jd", jwt_middleware_1.jwtAuth, express_1.default.json(), jd_controller_1.createJDTextHandler);
+app.post("/api/v1/jd/upload", jwt_middleware_1.jwtAuth, jd_controller_1.uploadJDHandler); // always rejects
+app.post("/api/v1/match/analyze", jwt_middleware_1.jwtAuth, express_1.default.json(), jd_controller_1.analyzeHandler);
+app.post("/api/v1/match/generate", jwt_middleware_1.jwtAuth, express_1.default.json(), jd_controller_1.generateHandler);
+app.get("/api/v1/match/:id", jwt_middleware_1.jwtAuth, jd_controller_1.getMatchHandler);
 // tRPC handler
-app.use("/api/v1/trpc", trpcExpress.createExpressMiddleware({
+app.use("/api/v1/trpc", jwt_middleware_1.jwtAuth, trpcExpress.createExpressMiddleware({
     router: appRouter_1.appRouter,
     createContext: context_1.createContext
 }));

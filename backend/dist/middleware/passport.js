@@ -45,7 +45,12 @@ async function upsertOAuthUser(params) {
             userId: user.id
         }
     });
-    return user;
+    // Return safe user fields only
+    const safe = await prismaClient_1.default.user.findUnique({
+        where: { id: user.id },
+        select: { id: true, email: true, name: true, role: true }
+    });
+    return safe;
 }
 if (env_1.env.GOOGLE_CLIENT_ID && env_1.env.GOOGLE_CLIENT_SECRET) {
     passport_1.default.use(new passport_google_oauth20_1.Strategy({

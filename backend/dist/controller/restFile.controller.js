@@ -23,29 +23,44 @@ const storage = multer_1.default.diskStorage({
         cb(null, `${Date.now()}-${basename}${ext}`);
     }
 });
+const allowedMimeTypes = env_1.env.ALLOWED_FILE_TYPES.split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
 exports.upload = (0, multer_1.default)({
     storage,
     limits: { fileSize: env_1.env.MAX_FILE_SIZE },
     fileFilter: (req, file, cb) => {
-        if (!env_1.env.ALLOWED_FILE_TYPES.split(",").includes(file.mimetype)) {
-            return cb(new Error("Invalid file type"));
+        const type = (file.mimetype || "").toLowerCase();
+        if (!allowedMimeTypes.includes(type)) {
+            const err = new Error(`Invalid file type: ${type}. Allowed: ${allowedMimeTypes.join(", ")}`);
+            return cb(err);
         }
         cb(null, true);
     }
-}).single("file");
+}).fields([
+    { name: "file", maxCount: 1 },
+    { name: "resume", maxCount: 1 }
+]);
 async function uploadResumeHandler(req, res, next) {
-    (0, exports.upload)(req, res, async function (err) {
+    exports.upload(req, res, async function (err) {
         try {
             if (err)
                 return next(err);
-            const file = req.file;
             const user = req.user;
             if (!user)
                 return res.status(401).json({ message: "Unauthorized" });
+            const files = req.files;
+            const single = req.file;
+            const file = single ?? files?.file?.[0] ?? files?.resume?.[0];
             if (!file)
                 return res.status(400).json({ message: "No file uploaded" });
             const result = await (0, file_service_1.parseAndSaveResume)(file, user.id);
-            return res.json({ success: true, resume: result.resume, parsed: result.parsed });
+            return res.json({
+                success: true,
+                resumeId: result.resume.id,
+                resume: result.resume,
+                parsed: result.parsed
+            });
         }
         catch (e) {
             next(e);

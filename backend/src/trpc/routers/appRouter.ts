@@ -4,13 +4,21 @@ import { userRouter } from "./user.router";
 import { fileRouter } from "./file.router";
 import { resumeRouter } from "./resume.router";
 import { matchRouter } from "./match.router";
+import { resumeVersionRouter } from "./resumeVersion.router";
+import { jobDescriptionRouter } from "./jobDescription.router";
+import { planRouter } from "./plan.router";
+import { activityRouter } from "./activity.router";
 
 export const appRouter = router({
   auth: authRouter,
   user: userRouter,
   file: fileRouter,
   resume: resumeRouter,
-  match: matchRouter
+  match: matchRouter,
+  resumeVersion: resumeVersionRouter,
+  jobDescription: jobDescriptionRouter,
+  plan: planRouter,
+  activity: activityRouter
 });
 
 export type AppRouter = typeof appRouter;

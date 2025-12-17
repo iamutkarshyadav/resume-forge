@@ -1,57 +1,41 @@
 import {
   Home,
   FileText,
+  Zap,
   BarChart2,
-  Search,
+  Clock,
   Settings,
-  User,
-  HelpCircle,
-  ChevronLeft,
-  ChevronRight,
-  FileUp,
   Briefcase,
-  ClipboardList,
-  MessageSquare,
-  FileCode,
-  Sparkles,
-  Lock,
-  Crown,
+  GitBranch,
+  TrendingUp,
 } from "lucide-react";
 
 export const navSections = [
   {
-    title: "WORKSPACE",
+    title: "MY WORK",
     links: [
-      { href: "/dashboard", icon: Home, label: "Home" },
-      { href: "/resumes", icon: FileUp, label: "Resumes" },
-      { href: "/history", icon: FileText, label: "History" },
-      { href: "/analytics", icon: BarChart2, label: "ATS Score" },
+      { href: "/dashboard", icon: Home, label: "Dashboard" },
+      { href: "/resumes", icon: FileText, label: "Resume Library" },
+      { href: "/versions", icon: GitBranch, label: "Version History" },
+      { href: "/progress", icon: TrendingUp, label: "Progress" },
     ],
   },
   {
-    title: "AI TOOLS",
+    title: "IMPROVE",
     links: [
-      { href: "/analyze-jd", icon: Briefcase, label: "Analyze JD" },
-      {
-        href: "/cover-letter",
-        icon: ClipboardList,
-        label: "Cover Letter",
-        tag: "PRO",
-      },
-      { href: "/summary", icon: FileCode, label: "Summary", tag: "BETA" },
-      {
-        href: "/ai-insights",
-        icon: Sparkles,
-        label: "AI Insights",
-        tag: "PRO",
-      },
-      { href: "/suggestions", icon: MessageSquare, label: "Suggestions" },
+      { href: "/analyze", icon: BarChart2, label: "Analyze for Job" },
+      { href: "/job-descriptions", icon: Briefcase, label: "Job Library" },
     ],
   },
   {
-    title: "SUPPORT",
+    title: "HISTORY",
     links: [
-      { href: "/help", icon: HelpCircle, label: "Help & Docs" },
+      { href: "/history", icon: Clock, label: "Past Analyses" },
+    ],
+  },
+  {
+    title: "ACCOUNT",
+    links: [
       { href: "/settings", icon: Settings, label: "Settings" },
     ],
   },

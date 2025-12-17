@@ -2,13 +2,25 @@ import { z } from "zod";
 import dotenv from "dotenv";
 dotenv.config();
 
+const isProduction = process.env.NODE_ENV === "production";
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   PORT: z.string().transform((val) => parseInt(val, 10)).default("4000"),
   BASE_URL: z.string().url().default("http://localhost:4000"),
-  DATABASE_URL: z.string().default("mongodb://localhost:27017/resume-dev"),
-  JWT_ACCESS_TOKEN_SECRET: z.string().min(20).default("dev-access-secret-please-change-123456"),
-  JWT_REFRESH_TOKEN_SECRET: z.string().min(20).default("dev-refresh-secret-please-change-123456"),
+  DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+  JWT_ACCESS_TOKEN_SECRET: z.string()
+    .min(32, "JWT_ACCESS_TOKEN_SECRET must be at least 32 characters")
+    .refine(
+      (val) => !isProduction || !val.includes("dev-"),
+      "Production JWT_ACCESS_TOKEN_SECRET must not use dev defaults"
+    ),
+  JWT_REFRESH_TOKEN_SECRET: z.string()
+    .min(32, "JWT_REFRESH_TOKEN_SECRET must be at least 32 characters")
+    .refine(
+      (val) => !isProduction || !val.includes("dev-"),
+      "Production JWT_REFRESH_TOKEN_SECRET must not use dev defaults"
+    ),
   JWT_ACCESS_TOKEN_EXPIRES_IN: z.string().default("15m"),
   JWT_REFRESH_TOKEN_EXPIRES_IN: z.string().default("30d"),
   GOOGLE_CLIENT_ID: z.string().optional(),
@@ -30,4 +42,18 @@ const envSchema = z.object({
   GEMINI_MODEL: z.string().default("gemini-2.5-flash")
 });
 
-export const env = envSchema.parse(process.env);
+try {
+  var env = envSchema.parse(process.env);
+} catch (err: any) {
+  console.error("\n❌ Invalid environment configuration:");
+  if (err.errors) {
+    err.errors.forEach((e: any) => {
+      console.error(`  - ${e.path.join(".")}: ${e.message}`);
+    });
+  } else {
+    console.error(err.message);
+  }
+  process.exit(1);
+}
+
+export { env };

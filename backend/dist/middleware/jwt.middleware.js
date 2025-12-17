@@ -11,18 +11,33 @@ async function jwtAuth(req, res, next) {
     try {
         const authHeader = req.headers.authorization;
         if (!authHeader)
-            return res.status(401).json({ message: "missing authorization header" });
-        const token = authHeader.split(" ")[1];
+            return next();
+        // Accept formats: "Bearer <token>" or raw token
+        const parts = authHeader.split(" ").filter(Boolean);
+        const token = parts.length === 1 ? parts[0] : parts[1];
         if (!token)
-            return res.status(401).json({ message: "invalid authorization header format" });
-        const payload = jsonwebtoken_1.default.verify(token, env_1.env.JWT_ACCESS_TOKEN_SECRET);
-        const user = await prismaClient_1.default.user.findUnique({ where: { id: payload.sub } });
+            return next();
+        let payload;
+        try {
+            payload = jsonwebtoken_1.default.verify(token, env_1.env.JWT_ACCESS_TOKEN_SECRET);
+        }
+        catch (err) {
+            return next();
+        }
+        if (!payload || !payload.sub)
+            return next();
+        // Select safe user fields (do not expose passwordHash)
+        const user = await prismaClient_1.default.user.findUnique({
+            where: { id: payload.sub },
+            select: { id: true, email: true, name: true, role: true }
+        });
         if (!user)
-            return res.status(401).json({ message: "user not found" });
+            return next();
         req.user = user;
-        next();
+        return next();
     }
     catch (err) {
-        return res.status(401).json({ message: "unauthorized", details: err.message });
+        console.error("JWT auth error:", err);
+        return next();
     }
 }

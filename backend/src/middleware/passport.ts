@@ -10,7 +10,10 @@ passport.serializeUser((user: any, done) => {
 
 passport.deserializeUser(async (id: string, done) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id } });
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: { id: true, email: true, name: true, role: true }
+    });
     done(null, user);
   } catch (err) {
     done(err as Error, null);

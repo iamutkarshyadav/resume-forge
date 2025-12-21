@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { ResumeDiffViewer } from "@/components/ResumeDiffViewer";
 import {
   GitBranch,
@@ -34,6 +35,9 @@ export default function VersionsPage() {
   const resumeId = searchParams.get("resumeId");
   const [selectedVersions, setSelectedVersions] = useState<[string | null, string | null]>([null, null]);
   const [showDiff, setShowDiff] = useState(false);
+  const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [actionVersion, setActionVersion] = useState<string | null>(null);
 
   const { data: versions, isLoading, refetch } = trpc.resumeVersion.listVersions.useQuery(
     { resumeId: resumeId || "" },
@@ -52,8 +56,10 @@ export default function VersionsPage() {
 
   const restoreMutation = trpc.resumeVersion.restoreVersion.useMutation({
     onSuccess: () => {
-      toast.success("Version restored!");
+      toast.success("Version restored! A new version has been created.");
       refetch();
+      setRestoreConfirmOpen(false);
+      setActionVersion(null);
     },
     onError: (err) => {
       toast.error(err.message || "Failed to restore version");
@@ -62,25 +68,34 @@ export default function VersionsPage() {
 
   const deleteMutation = trpc.resumeVersion.deleteVersion.useMutation({
     onSuccess: () => {
-      toast.success("Version deleted");
+      toast.success("Version deleted successfully");
       refetch();
+      setDeleteConfirmOpen(false);
+      setActionVersion(null);
     },
     onError: (err) => {
       toast.error(err.message || "Failed to delete version");
     },
   });
 
-  const handleRestore = (versionId: string) => {
-    if (!resumeId) return;
-    if (confirm("This will create a new version from this restore point.")) {
-      restoreMutation.mutate({ resumeId, fromVersionId: versionId });
-    }
+  const handleRestoreClick = (versionId: string) => {
+    setActionVersion(versionId);
+    setRestoreConfirmOpen(true);
   };
 
-  const handleDelete = (versionId: string) => {
-    if (confirm("Are you sure? This cannot be undone.")) {
-      deleteMutation.mutate({ versionId });
-    }
+  const handleRestoreConfirm = () => {
+    if (!resumeId || !actionVersion) return;
+    restoreMutation.mutate({ resumeId, fromVersionId: actionVersion });
+  };
+
+  const handleDeleteClick = (versionId: string) => {
+    setActionVersion(versionId);
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleDeleteConfirm = () => {
+    if (!actionVersion) return;
+    deleteMutation.mutate({ versionId: actionVersion });
   };
 
   if (!resumeId) {
@@ -151,7 +166,16 @@ export default function VersionsPage() {
             <Card className="bg-neutral-950 border border-neutral-800">
               <CardContent className="p-12 text-center">
                 <GitBranch className="h-12 w-12 text-neutral-600 mx-auto mb-4 opacity-50" />
-                <p className="text-neutral-400">No versions found</p>
+                <h3 className="text-lg font-semibold text-white mb-2">No Versions Yet</h3>
+                <p className="text-neutral-400 max-w-sm mx-auto">
+                  Versions are created automatically when you analyze your resume or generate improvements. Start by analyzing your resume against a job description.
+                </p>
+                <Button
+                  onClick={() => router.push("/analyze")}
+                  className="mt-4 bg-white text-black hover:bg-neutral-200 rounded-lg"
+                >
+                  Analyze Resume
+                </Button>
               </CardContent>
             </Card>
           ) : (
@@ -244,7 +268,7 @@ export default function VersionsPage() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => handleRestore(version.id)}
+                          onClick={() => handleRestoreClick(version.id)}
                           disabled={restoreMutation.isPending}
                           className="text-neutral-400 hover:text-white"
                           title="Create a new version from this one"
@@ -255,7 +279,7 @@ export default function VersionsPage() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => handleDelete(version.id)}
+                          onClick={() => handleDeleteClick(version.id)}
                           disabled={deleteMutation.isPending || versions.length <= 1}
                           className="text-red-400 hover:text-red-300"
                         >
@@ -301,6 +325,38 @@ export default function VersionsPage() {
           </motion.section>
         )}
       </div>
+
+      <ConfirmationDialog
+        open={restoreConfirmOpen}
+        onOpenChange={setRestoreConfirmOpen}
+        title="Restore Version?"
+        description="This will create a new version from this restore point. Your current version will be preserved."
+        actionLabel="Restore"
+        cancelLabel="Cancel"
+        variant="default"
+        isPending={restoreMutation.isPending}
+        onConfirm={handleRestoreConfirm}
+        onCancel={() => {
+          setRestoreConfirmOpen(false);
+          setActionVersion(null);
+        }}
+      />
+
+      <ConfirmationDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        title="Delete Version?"
+        description="This action cannot be undone. The version will be permanently deleted."
+        actionLabel="Delete"
+        cancelLabel="Cancel"
+        variant="destructive"
+        isPending={deleteMutation.isPending}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => {
+          setDeleteConfirmOpen(false);
+          setActionVersion(null);
+        }}
+      />
     </main>
   );
 }

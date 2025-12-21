@@ -9,11 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Crown, LogOut, Loader2 } from "lucide-react";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 export default function SettingsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [deleteAccountConfirmOpen, setDeleteAccountConfirmOpen] = useState(false);
 
   const userQuery = trpc.auth.me.useQuery();
   const user = userQuery.data;
@@ -28,12 +31,22 @@ export default function SettingsPage() {
     try {
       localStorage.removeItem("accessToken");
       localStorage.removeItem("refreshToken");
+      toast.success("Logged out successfully");
       router.push("/");
     } catch (error) {
       console.error("Logout error:", error);
-      alert("Failed to logout");
+      toast.error("Failed to logout");
       setLoading(false);
     }
+  };
+
+  const handleDeleteAccountClick = () => {
+    setDeleteAccountConfirmOpen(true);
+  };
+
+  const handleDeleteAccountConfirm = async () => {
+    toast.info("Delete account feature coming soon");
+    setDeleteAccountConfirmOpen(false);
   };
 
   return (
@@ -212,9 +225,9 @@ export default function SettingsPage() {
               <Button
                 variant="outline"
                 className="w-full border-red-700 text-red-400 hover:bg-red-900/10 rounded-lg"
-                disabled
+                onClick={handleDeleteAccountClick}
               >
-                Delete Account (Coming Soon)
+                Delete Account
               </Button>
 
               <Button
@@ -253,6 +266,19 @@ export default function SettingsPage() {
           </p>
         </motion.div>
       </div>
+
+      <ConfirmationDialog
+        open={deleteAccountConfirmOpen}
+        onOpenChange={setDeleteAccountConfirmOpen}
+        title="Delete Account?"
+        description="This action cannot be undone. All your data, resumes, and analyses will be permanently deleted."
+        actionLabel="Delete Account"
+        cancelLabel="Cancel"
+        variant="destructive"
+        isPending={false}
+        onConfirm={handleDeleteAccountConfirm}
+        onCancel={() => setDeleteAccountConfirmOpen(false)}
+      />
     </main>
   );
 }

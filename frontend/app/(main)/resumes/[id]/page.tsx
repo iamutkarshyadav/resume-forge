@@ -11,9 +11,11 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { ArrowLeft, Download, Trash2, BarChart2, ChevronDown, Loader2 } from "lucide-react";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { trpc } from "@/lib/trpc";
 import { downloadAsJSON, getDownloadFilename } from "@/lib/download";
 import { useNotifications } from "@/hooks/use-notifications";
+import { toast } from "sonner";
 
 type Resume = {
   id: string;
@@ -37,6 +39,7 @@ export default function ResumeDetailPage() {
 
   const [deleting, setDeleting] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const resumeQuery = trpc.resume.get.useQuery(
     { resumeId },
     { enabled: !!resumeId }
@@ -46,21 +49,12 @@ export default function ResumeDetailPage() {
   const resume = resumeQuery.data as Resume | undefined;
   const jsonData = resume?.jsonData || {};
 
-  // TODO: Fetch past analyses for this resume
-  const [pastAnalyses, setPastAnalyses] = useState<Match[]>([
-    {
-      id: "m1",
-      score: 92,
-      summary: "Backend Eng @ Google",
-      createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    },
-    {
-      id: "m2",
-      score: 87,
-      summary: "Platform Team @ Stripe",
-      createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    },
-  ]);
+  const pastAnalysesQuery = trpc.activity.getRecentMatches.useQuery(
+    { limit: 10, resumeId },
+    { enabled: !!resumeId }
+  );
+
+  const pastAnalyses = pastAnalysesQuery.data || [];
 
   function timeAgo(iso?: string) {
     if (!iso) return "";
@@ -73,16 +67,19 @@ export default function ResumeDetailPage() {
     return `${days}d ago`;
   }
 
-  const handleDelete = async () => {
-    if (!confirm("Are you sure? This cannot be undone.")) return;
+  const handleDeleteClick = () => {
+    setDeleteConfirmOpen(true);
+  };
 
+  const handleDeleteConfirm = async () => {
     setDeleting(true);
     try {
       await deleteFileMutation.mutateAsync({ fileId: resumeId });
+      toast.success("Resume deleted successfully");
       router.push("/resumes");
     } catch (err) {
       console.error("Delete error:", err);
-      errorNotify("Failed to delete resume");
+      toast.error("Failed to delete resume");
       setDeleting(false);
     }
   };
@@ -195,7 +192,7 @@ export default function ResumeDetailPage() {
             <Button
               variant="ghost"
               className="text-red-400 hover:text-red-500"
-              onClick={handleDelete}
+              onClick={handleDeleteClick}
               disabled={deleting}
             >
               {deleting ? (
@@ -354,25 +351,28 @@ export default function ResumeDetailPage() {
         </motion.section>
 
         {/* PAST ANALYSES SECTION */}
-        {pastAnalyses.length > 0 && (
-          <motion.section
-            initial="hidden"
-            animate="visible"
-            variants={fadeUp}
-          >
-            <Card className="bg-neutral-950 border border-neutral-800 rounded-xl">
-              <CardHeader>
-                <CardTitle className="text-lg">Past Analyses</CardTitle>
-              </CardHeader>
+        <motion.section
+          initial="hidden"
+          animate="visible"
+          variants={fadeUp}
+        >
+          <Card className="bg-neutral-950 border border-neutral-800 rounded-xl">
+            <CardHeader>
+              <CardTitle className="text-lg">Past Analyses</CardTitle>
+            </CardHeader>
+            {pastAnalyses.length === 0 ? (
+              <CardContent className="text-center py-8">
+                <BarChart2 className="h-8 w-8 text-neutral-600 mx-auto mb-3 opacity-50" />
+                <p className="text-neutral-400 text-sm">
+                  No analyses yet. Analyze this resume against job descriptions to see results here.
+                </p>
+              </CardContent>
+            ) : (
               <CardContent className="space-y-3">
                 {pastAnalyses.map((match) => (
                   <div
                     key={match.id}
-                    className="p-3 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-between hover:border-neutral-700 transition-colors cursor-pointer"
-                    onClick={() => {
-                      // TODO: Navigate to analysis detail or open modal
-                      alert("View analysis details (coming soon)");
-                    }}
+                    className="p-3 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-between hover:border-neutral-700 transition-colors"
                   >
                     <div className="flex items-center gap-3">
                       <BarChart2 className="h-5 w-5 text-neutral-400" />
@@ -391,9 +391,9 @@ export default function ResumeDetailPage() {
                   </div>
                 ))}
               </CardContent>
-            </Card>
-          </motion.section>
-        )}
+            )}
+          </Card>
+        </motion.section>
 
         {/* PRIMARY CTA */}
         <motion.div
@@ -418,6 +418,19 @@ export default function ResumeDetailPage() {
           </Button>
         </motion.div>
       </div>
+
+      <ConfirmationDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        title="Delete Resume?"
+        description="This action cannot be undone. The resume will be permanently deleted."
+        actionLabel="Delete"
+        cancelLabel="Cancel"
+        variant="destructive"
+        isPending={deleting}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteConfirmOpen(false)}
+      />
     </main>
   );
 }

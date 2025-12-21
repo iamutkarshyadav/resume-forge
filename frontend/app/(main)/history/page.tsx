@@ -165,7 +165,7 @@ export default function HistoryPage() {
                                 <BarChart2 className="h-5 w-5 text-neutral-400" />
                               </div>
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium truncate">
+                                <p className="text-sm font-medium truncate max-w-xs md:max-w-md lg:max-w-lg">
                                   {match.summary}
                                 </p>
                                 <p className="text-xs text-neutral-500 mt-1">
@@ -174,7 +174,7 @@ export default function HistoryPage() {
                               </div>
                             </div>
 
-                            <div className="text-right flex-shrink-0">
+                            <div className="text-right flex-shrink-0 ml-4">
                               <p className="text-lg font-semibold">
                                 {match.score}%
                               </p>
@@ -191,12 +191,14 @@ export default function HistoryPage() {
                                 <p className="text-xs text-neutral-400 mb-2">
                                   Job Description Preview
                                 </p>
-                                <p className="text-sm text-neutral-300">
-                                  {match.jdText?.substring(0, 200)}...
-                                </p>
+                                <div className="max-h-24 overflow-y-auto rounded-lg bg-neutral-900/50 p-3 border border-neutral-800">
+                                  <p className="text-sm text-neutral-300 break-words">
+                                    {match.jdText?.substring(0, 300) || "No job description available"}
+                                  </p>
+                                </div>
                               </div>
 
-                              <div className="flex gap-2 pt-2">
+                              <div className="flex gap-2 pt-2 flex-wrap">
                                 <Button
                                   size="sm"
                                   variant="outline"

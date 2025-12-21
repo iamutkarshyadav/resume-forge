@@ -61,6 +61,12 @@ const MAIN_NAV: NavSection[] = [
       { label: "Progress", href: "/progress", icon: TrendingUp },
     ],
   },
+  {
+    title: "Account",
+    items: [
+      { label: "Settings", href: "/settings", icon: Settings },
+    ],
+  },
 ];
 
 export function AppSidebar() {

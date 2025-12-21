@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { FileText, Upload, Search, Trash2, Loader2 } from "lucide-react";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 type Resume = {
   id: string;
@@ -23,6 +24,8 @@ export default function ResumeLibraryPage() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [resumeToDelete, setResumeToDelete] = useState<string | null>(null);
 
   const resumeQuery = trpc.resume.list.useQuery();
   const deleteFileMutation = trpc.file.deleteFile.useMutation();
@@ -82,16 +85,24 @@ export default function ResumeLibraryPage() {
     }
   };
 
-  const handleDelete = async (fileId: string) => {
-    if (!confirm("Are you sure? This cannot be undone.")) return;
+  const handleDeleteClick = (fileId: string) => {
+    setResumeToDelete(fileId);
+    setDeleteConfirmOpen(true);
+  };
 
-    setDeleting(fileId);
+  const handleDeleteConfirm = async () => {
+    if (!resumeToDelete) return;
+
+    setDeleting(resumeToDelete);
     try {
-      await deleteFileMutation.mutateAsync({ fileId });
+      await deleteFileMutation.mutateAsync({ fileId: resumeToDelete });
       await resumeQuery.refetch();
+      toast.success("Resume deleted successfully");
+      setDeleteConfirmOpen(false);
+      setResumeToDelete(null);
     } catch (err) {
       console.error("Delete error:", err);
-      alert("Failed to delete resume");
+      toast.error("Failed to delete resume");
     } finally {
       setDeleting(null);
     }
@@ -243,7 +254,7 @@ export default function ResumeLibraryPage() {
                           variant="ghost"
                           size="sm"
                           className="text-neutral-500 hover:text-red-400"
-                          onClick={() => handleDelete(resume.id)}
+                          onClick={() => handleDeleteClick(resume.id)}
                           disabled={deleting === resume.id}
                         >
                           {deleting === resume.id ? (
@@ -261,6 +272,22 @@ export default function ResumeLibraryPage() {
           )}
         </motion.section>
       </div>
+
+      <ConfirmationDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        title="Delete Resume?"
+        description="This action cannot be undone. The resume will be permanently deleted."
+        actionLabel="Delete"
+        cancelLabel="Cancel"
+        variant="destructive"
+        isPending={!!deleting}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => {
+          setDeleteConfirmOpen(false);
+          setResumeToDelete(null);
+        }}
+      />
     </main>
   );
 }

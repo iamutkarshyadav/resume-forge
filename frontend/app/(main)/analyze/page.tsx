@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { AnalysisResults } from "@/components/AnalysisResults";
+import { toast } from "sonner";
 
 type AnalysisResult = {
   match?: {
@@ -91,14 +92,14 @@ export default function AnalyzeForJobPage() {
 
   const handleAnalyze = async () => {
     if (!selectedResumeId) {
-      alert("Please select a resume");
+      toast.error("Please select a resume");
       return;
     }
 
     const textToAnalyze = jdMode === "paste" ? jdText : savedJds.find(j => j.id === selectedJdId)?.fullText;
 
     if (!textToAnalyze || !textToAnalyze.trim()) {
-      alert("Please provide a job description");
+      toast.error("Please provide a job description");
       return;
     }
 
@@ -112,9 +113,10 @@ export default function AnalyzeForJobPage() {
 
       setResult(response);
       setStep("results");
+      toast.success("Analysis complete!");
     } catch (error) {
       console.error("Analysis error:", error);
-      alert("Failed to analyze. Please try again.");
+      toast.error("Failed to analyze. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -139,9 +141,10 @@ export default function AnalyzeForJobPage() {
         match: { ...prev?.match, generatedResume: response.match?.generatedResume },
       }));
       setShowGeneratedResume(true);
+      toast.success("Resume generated successfully!");
     } catch (error) {
       console.error("Generation error:", error);
-      alert("Failed to generate resume. Please try again.");
+      toast.error("Failed to generate resume. Please try again.");
     } finally {
       setGeneratingResume(false);
     }
@@ -382,7 +385,7 @@ export default function AnalyzeForJobPage() {
 
                 <Button
                   onClick={() => {
-                    alert("Download feature coming soon");
+                    toast.info("Download feature coming soon");
                   }}
                   className="w-full bg-white text-black hover:bg-neutral-200 rounded-lg"
                 >

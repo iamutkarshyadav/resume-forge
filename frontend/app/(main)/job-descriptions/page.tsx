@@ -14,6 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import {
   Plus,
   Search,
@@ -42,6 +43,8 @@ export default function JobDescriptionsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [showNewDialog, setShowNewDialog] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [jdToDelete, setJdToDelete] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: "",
     company: "",
@@ -92,9 +95,16 @@ export default function JobDescriptionsPage() {
     });
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm("Are you sure you want to delete this job description?")) {
-      deleteMutation.mutate({ jdId: id });
+  const handleDeleteClick = (id: string) => {
+    setJdToDelete(id);
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleDeleteConfirm = () => {
+    if (jdToDelete) {
+      deleteMutation.mutate({ jdId: jdToDelete });
+      setDeleteConfirmOpen(false);
+      setJdToDelete(null);
     }
   };
 
@@ -356,7 +366,7 @@ export default function JobDescriptionsPage() {
                           size="sm"
                           variant="ghost"
                           className="text-red-400 hover:text-red-300"
-                          onClick={() => handleDelete(jd.id)}
+                          onClick={() => handleDeleteClick(jd.id)}
                           disabled={deleteMutation.isPending}
                         >
                           <Trash2 className="h-4 w-4" />
@@ -370,6 +380,22 @@ export default function JobDescriptionsPage() {
           )}
         </motion.div>
       </div>
+
+      <ConfirmationDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        title="Delete Job Description?"
+        description="This action cannot be undone. The job description will be permanently deleted."
+        actionLabel="Delete"
+        cancelLabel="Cancel"
+        variant="destructive"
+        isPending={deleteMutation.isPending}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => {
+          setDeleteConfirmOpen(false);
+          setJdToDelete(null);
+        }}
+      />
     </main>
   );
 }

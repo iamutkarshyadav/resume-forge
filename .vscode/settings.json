@@ -1,6 +1,6 @@
 {
   "builder.serverUrl": "http://localhost:3000",
-  "builder.command": "npm run dev",
+  "builder.command": "cd frontend && npm run dev",
   "builder.runDevServer": true,
   "builder.autoDetectDevServer": false,
   "builder.launchType": "editor"

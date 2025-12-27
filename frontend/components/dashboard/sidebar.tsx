@@ -132,6 +132,7 @@ export function AppSidebar() {
                       key={item.href}
                       href={item.href}
                       className="cursor-pointer block group"
+                      {...(item.href === "/job-descriptions" && { "data-onboarding": "job-descriptions" })}
                     >
                       <Button
                         variant="ghost"

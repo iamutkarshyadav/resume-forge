@@ -11,6 +11,7 @@ exports.checkLimit = checkLimit;
 exports.upgradePlan = upgradePlan;
 exports.getUserMetrics = getUserMetrics;
 const prismaClient_1 = __importDefault(require("../prismaClient"));
+const plans_1 = require("../config/plans");
 const CURRENT_MONTH = getCurrentMonth();
 function getCurrentMonth() {
     const now = new Date();
@@ -20,14 +21,15 @@ async function initializePlan(userId) {
     // Check if plan already exists
     let plan = await prismaClient_1.default.userPlan.findUnique({ where: { userId } });
     if (!plan) {
+        const freeLimits = (0, plans_1.getPlanLimits)("free");
         plan = await prismaClient_1.default.userPlan.create({
             data: {
                 userId,
                 planType: "free",
-                analysesPerMonth: 10,
-                savedJdsLimit: 5,
-                aiGenerationsPerMonth: 3,
-                exportModes: ["pdf"],
+                analysesPerMonth: freeLimits.analysesPerMonth,
+                savedJdsLimit: freeLimits.savedJdsLimit,
+                aiGenerationsPerMonth: freeLimits.aiGenerationsPerMonth,
+                exportModes: freeLimits.exportModes,
                 currentMonth: CURRENT_MONTH
             }
         });
@@ -115,24 +117,16 @@ async function checkLimit(userId, limitType) {
     return { allowed: false, remaining: 0, limit: 0 };
 }
 async function upgradePlan(userId, planType) {
-    const updates = {
-        planType
-    };
-    if (planType === "pro") {
-        updates.analysesPerMonth = 100;
-        updates.savedJdsLimit = 50;
-        updates.aiGenerationsPerMonth = 50;
-        updates.exportModes = ["pdf", "docx", "ats", "recruiter"];
-    }
-    else if (planType === "enterprise") {
-        updates.analysesPerMonth = -1; // Unlimited
-        updates.savedJdsLimit = -1;
-        updates.aiGenerationsPerMonth = -1;
-        updates.exportModes = ["pdf", "docx", "ats", "recruiter"];
-    }
+    const limits = (0, plans_1.getPlanLimits)(planType);
     const plan = await prismaClient_1.default.userPlan.update({
         where: { userId },
-        data: updates
+        data: {
+            planType,
+            analysesPerMonth: limits.analysesPerMonth,
+            savedJdsLimit: limits.savedJdsLimit,
+            aiGenerationsPerMonth: limits.aiGenerationsPerMonth,
+            exportModes: limits.exportModes
+        }
     });
     return plan;
 }

@@ -18,6 +18,7 @@ import * as z from 'zod'
 import { trpc } from '@/lib/trpc'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { useErrorHandler } from '@/providers/error-provider'
 
 const formSchema = z
     .object({
@@ -34,6 +35,7 @@ const formSchema = z
 
 export default function SignupPage() {
     const router = useRouter();
+    const { showErrorFromException } = useErrorHandler();
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
         defaultValues: {
@@ -49,11 +51,15 @@ export default function SignupPage() {
         onSuccess: (data) => {
             localStorage.setItem('accessToken', data.accessToken);
             localStorage.setItem('refreshToken', data.refreshToken);
-            toast.success('Account created successfully!');
-            router.push('/dashboard');
+
+            // Small delay to ensure localStorage is persisted and providers detect auth
+            setTimeout(() => {
+                toast.success('Account created successfully!');
+                router.push('/dashboard');
+            }, 100);
         },
         onError: (error) => {
-            toast.error(error.message || 'Something went wrong');
+            showErrorFromException(error, 'Signup Failed');
         }
     });
 

@@ -40,25 +40,43 @@ export default function DashboardPage() {
   const [resumes, setResumes] = useState<Resume[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
 
-  // Fetch data
-  const userQuery = trpc.auth.me.useQuery();
-  const resumeQuery = trpc.resume.list.useQuery();
-  const recentMatchesQuery = trpc.activity.getRecentMatches.useQuery({ limit: 5 });
-  const onboardingQuery = trpc.onboarding.getStatus.useQuery();
+  // Fetch data with proper error handling
+  const userQuery = trpc.auth.me.useQuery(undefined, {
+    retry: 1,
+  });
+  const resumeQuery = trpc.resume.list.useQuery(undefined, {
+    retry: 1,
+  });
+  const recentMatchesQuery = trpc.activity.getRecentMatches.useQuery(
+    { limit: 5 },
+    {
+      retry: 1,
+    }
+  );
+  const onboardingQuery = trpc.onboarding.getStatus.useQuery(undefined, {
+    retry: 1,
+  });
 
-  const onboarding = onboardingQuery.data;
+  // Gracefully handle missing or loading onboarding
+  const onboarding = onboardingQuery.data || { isNew: false, isOnboarding: false };
 
   useEffect(() => {
     if (userQuery.data) {
       setUser({ name: userQuery.data?.name || "User" });
+    } else if (userQuery.isError) {
+      // Gracefully handle user fetch error
+      setUser({ name: "User" });
     }
-  }, [userQuery.data]);
+  }, [userQuery.data, userQuery.isError]);
 
   useEffect(() => {
     if (resumeQuery.data) {
       setResumes(resumeQuery.data as Resume[]);
+    } else if (resumeQuery.isError) {
+      // Gracefully handle resume fetch error
+      setResumes([]);
     }
-  }, [resumeQuery.data]);
+  }, [resumeQuery.data, resumeQuery.isError]);
 
   useEffect(() => {
     if (recentMatchesQuery.data) {
@@ -71,8 +89,11 @@ export default function DashboardPage() {
           createdAt: m.createdAt,
         }))
       );
+    } else if (recentMatchesQuery.isError) {
+      // Gracefully handle matches fetch error
+      setMatches([]);
     }
-  }, [recentMatchesQuery.data]);
+  }, [recentMatchesQuery.data, recentMatchesQuery.isError]);
 
   function timeAgo(iso?: string) {
     if (!iso) return "";
@@ -137,7 +158,8 @@ export default function DashboardPage() {
             className="grid grid-cols-1 md:grid-cols-3 gap-4"
           >
             <Card className="bg-neutral-950 border border-neutral-800 hover:border-neutral-700 transition-colors rounded-2xl cursor-pointer group"
-              onClick={() => router.push("/resumes")}>
+              onClick={() => router.push("/resumes")}
+              data-onboarding="upload">
               <CardContent className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="h-10 w-10 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center group-hover:bg-neutral-800">
@@ -156,7 +178,8 @@ export default function DashboardPage() {
             </Card>
 
             <Card className="bg-neutral-950 border border-neutral-800 hover:border-neutral-700 transition-colors rounded-2xl cursor-pointer group"
-              onClick={() => router.push("/analyze")}>
+              onClick={() => router.push("/analyze")}
+              data-onboarding="analyze">
               <CardContent className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="h-10 w-10 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center group-hover:bg-neutral-800">
@@ -175,16 +198,17 @@ export default function DashboardPage() {
             </Card>
 
             <Card className="bg-neutral-950 border border-neutral-800 hover:border-neutral-700 transition-colors rounded-2xl cursor-pointer group"
-              onClick={() => router.push("/progress")}>
+              onClick={() => router.push("/history")}
+              data-onboarding="history">
               <CardContent className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="h-10 w-10 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center group-hover:bg-neutral-800">
-                    <Sparkles className="h-5 w-5 text-purple-400" />
+                    <Activity className="h-5 w-5 text-blue-400" />
                   </div>
                 </div>
-                <h3 className="font-semibold text-white mb-1">Progress</h3>
+                <h3 className="font-semibold text-white mb-1">History</h3>
                 <p className="text-sm text-neutral-400 mb-4">
-                  {hasAnalyses ? "View your trends" : "No data yet"}
+                  {hasAnalyses ? "View your analyses" : "No data yet"}
                 </p>
                 <Button size="sm" className="bg-white text-black hover:bg-neutral-200 rounded-lg w-full" disabled={!hasAnalyses}>
                   View

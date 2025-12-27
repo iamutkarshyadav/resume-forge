@@ -8,6 +8,7 @@ exports.getResumeById = getResumeById;
 exports.deleteResume = deleteResume;
 const prismaClient_1 = __importDefault(require("../prismaClient"));
 const fs_1 = __importDefault(require("fs"));
+const httpError_1 = require("../utils/httpError");
 async function getUserResumes(userId) {
     return prismaClient_1.default.resume.findMany({
         where: { uploadedById: userId },
@@ -15,21 +16,27 @@ async function getUserResumes(userId) {
     });
 }
 async function getResumeById(userId, resumeId) {
-    return prismaClient_1.default.resume.findFirst({
+    const resume = await prismaClient_1.default.resume.findFirst({
         where: { id: resumeId, uploadedById: userId }
     });
+    if (!resume)
+        throw new httpError_1.HttpError(404, "Resume not found");
+    return resume;
 }
 async function deleteResume(userId, resumeId) {
     const resume = await prismaClient_1.default.resume.findFirst({ where: { id: resumeId, uploadedById: userId } });
     if (!resume)
-        throw new Error("Not found");
+        throw new httpError_1.HttpError(404, "Resume not found");
     const path = resume.jsonData?.path;
     if (path) {
         try {
             fs_1.default.unlinkSync(path);
         }
-        catch { }
+        catch (err) {
+            // Log but don't fail - file might already be deleted
+            console.error(`Failed to delete file at ${path}:`, err);
+        }
     }
     await prismaClient_1.default.resume.delete({ where: { id: resumeId } });
-    return true;
+    return { success: true };
 }

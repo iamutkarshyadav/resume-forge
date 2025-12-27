@@ -116,10 +116,21 @@ async function deleteJobDescription(userId, jdId) {
     return { success: true };
 }
 async function searchJobDescriptions(userId, query) {
-    // Simple text search in title, company, and tags
-    const allJds = await listJobDescriptions(userId);
+    // Database-level search: use case-insensitive filters
+    if (!query || query.trim().length === 0) {
+        return listJobDescriptions(userId);
+    }
     const queryLower = query.toLowerCase();
-    return allJds.filter(jd => jd.title.toLowerCase().includes(queryLower) ||
-        (jd.company?.toLowerCase().includes(queryLower) ?? false) ||
-        jd.tags.some(t => t.toLowerCase().includes(queryLower)));
+    const jds = await prismaClient_1.default.jobDescription.findMany({
+        where: {
+            userId,
+            OR: [
+                { title: { contains: queryLower, mode: "insensitive" } },
+                { company: { contains: queryLower, mode: "insensitive" } },
+                { tags: { has: queryLower } }
+            ]
+        },
+        orderBy: { createdAt: "desc" }
+    });
+    return jds;
 }

@@ -5,6 +5,12 @@ import { add } from "date-fns";
 import { hash, compare } from "bcryptjs";
 import { HttpError } from "../utils/httpError";
 
+// Validate Prisma client is available
+if (!prisma) {
+  console.error("❌ CRITICAL: Prisma client not initialized. Check DATABASE_URL and Prisma setup.");
+  process.exit(1);
+}
+
 function parseExpiryToDate(base: Date, expr: string) {
   const m = expr.match(/^(\d+)([smhd])$/i);
   if (!m) return add(base, { days: 30 });
@@ -45,19 +51,32 @@ export async function createSession(
   _ip?: string | null,
   _userAgent?: string | null
 ) {
-  const tokenHash = await hash(refreshToken, 10);
-  const expiresAt = parseExpiryToDate(new Date(), env.JWT_REFRESH_TOKEN_EXPIRES_IN);
-  await prisma.refreshToken.create({
-    data: {
-      tokenHash,
-      userId,
-      expiresAt
+  try {
+    if (!prisma) {
+      throw new HttpError(500, "Database connection failed. Please try again.");
     }
-  });
+    const tokenHash = await hash(refreshToken, 10);
+    const expiresAt = parseExpiryToDate(new Date(), env.JWT_REFRESH_TOKEN_EXPIRES_IN);
+    await prisma.refreshToken.create({
+      data: {
+        tokenHash,
+        userId,
+        expiresAt
+      }
+    });
+  } catch (error: any) {
+    console.error("Error creating session:", error);
+    if (error instanceof HttpError) throw error;
+    throw new HttpError(500, "Failed to create session. Please try again.");
+  }
 }
 
 export async function verifyAndRotateRefreshToken(oldToken: string) {
   try {
+    if (!prisma) {
+      throw new HttpError(500, "Database connection failed. Please try again.");
+    }
+
     const payload = jwt.verify(oldToken, env.JWT_REFRESH_TOKEN_SECRET as jwt.Secret) as { sub: string };
     const userId = payload.sub;
 
@@ -75,7 +94,7 @@ export async function verifyAndRotateRefreshToken(oldToken: string) {
       }
     }
 
-    if (!matchedId) throw new HttpError(401, "Refresh token not recognized");
+    if (!matchedId) throw new HttpError(401, "Session expired. Please sign in again.");
 
     await prisma.refreshToken.update({ where: { id: matchedId }, data: { revoked: true } });
 
@@ -86,7 +105,7 @@ export async function verifyAndRotateRefreshToken(oldToken: string) {
     return { userId, accessToken, refreshToken: newRefresh };
   } catch (e: any) {
     if (e instanceof HttpError) throw e;
-    throw new HttpError(401, "Invalid refresh token");
+    throw new HttpError(401, "Session expired. Please sign in again.");
   }
 }
 
@@ -98,46 +117,67 @@ export async function registerLocalUser(
   password: string,
   name?: string
 ) {
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
-    throw new HttpError(409, "User already exists");
+  try {
+    if (!prisma) {
+      throw new HttpError(500, "Database connection failed. Please try again.");
+    }
+
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      throw new HttpError(409, "Email already registered. Please sign in instead.");
+    }
+
+    const hashed = await hash(password, 10);
+    const user = await prisma.user.create({
+      data: {
+        email,
+        name,
+        passwordHash: hashed
+      },
+      select: { id: true, email: true, name: true, role: true }
+    });
+    return user;
+  } catch (error: any) {
+    console.error("Error registering user:", error);
+    if (error instanceof HttpError) throw error;
+    throw new HttpError(500, "Failed to create account. Please try again.");
   }
-  const hashed = await hash(password, 10);
-  const user = await prisma.user.create({
-    data: {
-      email,
-      name,
-      passwordHash: hashed
-    },
-    select: { id: true, email: true, name: true, role: true }
-  });
-  return user;
 }
 
 // ------------------------------------
 // LOGIN LOCAL USER
 // ------------------------------------
 export async function loginLocalUser(email: string, password: string) {
-  const user = await prisma.user.findUnique({
-    where: { email },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      passwordHash: true,
-      role: true
+  try {
+    if (!prisma) {
+      throw new HttpError(500, "Database connection failed. Please try again.");
     }
-  });
 
-  if (!user || !user.passwordHash) {
-    throw new HttpError(401, "Invalid credentials");
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        passwordHash: true,
+        role: true
+      }
+    });
+
+    if (!user || !user.passwordHash) {
+      throw new HttpError(401, "Invalid email or password");
+    }
+
+    const valid = await compare(password, user.passwordHash);
+    if (!valid) {
+      throw new HttpError(401, "Invalid email or password");
+    }
+
+    const { passwordHash, ...safe } = user as any;
+    return safe;
+  } catch (error: any) {
+    console.error("Error logging in user:", error);
+    if (error instanceof HttpError) throw error;
+    throw new HttpError(500, "Login failed. Please try again.");
   }
-
-  const valid = await compare(password, user.passwordHash);
-  if (!valid) {
-    throw new HttpError(401, "Invalid credentials");
-  }
-
-  const { passwordHash, ...safe } = user as any;
-  return safe;
 }

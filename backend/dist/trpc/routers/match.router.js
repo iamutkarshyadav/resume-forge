@@ -36,56 +36,83 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.matchRouter = void 0;
 const trpc_1 = require("../trpc");
 const zod_1 = require("zod");
+const validate_context_1 = require("../validate-context");
 const matchService = __importStar(require("../../services/match.service"));
 const planService = __importStar(require("../../services/plan.service"));
 exports.matchRouter = (0, trpc_1.router)({
     analyzeResumeToJD: trpc_1.protectedProcedure
         .input(zod_1.z.object({ resumeId: zod_1.z.string(), jdText: zod_1.z.string(), jdId: zod_1.z.string().optional() }))
         .mutation(async ({ input, ctx }) => {
-        const current = ctx.req.user;
-        if (!current)
-            throw new trpc_1.TRPCError({ code: "UNAUTHORIZED" });
-        // Check usage limit
-        const limitCheck = await planService.checkLimit(current.id, "analyses");
-        if (!limitCheck.allowed && limitCheck.limit !== -1) {
+        try {
+            const user = (0, validate_context_1.validateAuthContext)(ctx);
+            // Check usage limit
+            const limitCheck = await planService.checkLimit(user.id, "analyses");
+            if (!limitCheck.allowed && limitCheck.limit !== -1) {
+                throw new trpc_1.TRPCError({
+                    code: "FORBIDDEN",
+                    message: `Analysis limit reached. You have ${limitCheck.remaining} analyses remaining this month.`
+                });
+            }
+            const res = await matchService.analyzeMatch({ id: user.id, role: user.role }, input.resumeId, input.jdText, input.jdId);
+            // Increment usage
+            await planService.incrementUsage(user.id, "analyses");
+            return res;
+        }
+        catch (err) {
+            if (err instanceof trpc_1.TRPCError)
+                throw err;
+            console.error("Error analyzing resume to JD:", err);
             throw new trpc_1.TRPCError({
-                code: "FORBIDDEN",
-                message: `Analysis limit reached. You have ${limitCheck.remaining} analyses remaining this month.`
+                code: "INTERNAL_SERVER_ERROR",
+                message: err.message || "Failed to analyze resume"
             });
         }
-        const res = await matchService.analyzeMatch({ id: current.id, role: current.role }, input.resumeId, input.jdText, input.jdId);
-        // Increment usage
-        await planService.incrementUsage(current.id, "analyses");
-        return res;
     }),
     generateResumeForJD: trpc_1.protectedProcedure
         .input(zod_1.z.object({ resumeId: zod_1.z.string(), jdText: zod_1.z.string() }))
         .mutation(async ({ input, ctx }) => {
-        const current = ctx.req.user;
-        if (!current)
-            throw new trpc_1.TRPCError({ code: "UNAUTHORIZED" });
-        // Check usage limit
-        const limitCheck = await planService.checkLimit(current.id, "aiGenerations");
-        if (!limitCheck.allowed && limitCheck.limit !== -1) {
+        try {
+            const user = (0, validate_context_1.validateAuthContext)(ctx);
+            // Check usage limit
+            const limitCheck = await planService.checkLimit(user.id, "aiGenerations");
+            if (!limitCheck.allowed && limitCheck.limit !== -1) {
+                throw new trpc_1.TRPCError({
+                    code: "FORBIDDEN",
+                    message: `AI generation limit reached. You have ${limitCheck.remaining} generations remaining this month.`
+                });
+            }
+            const res = await matchService.generateForMatch({ id: user.id, role: user.role }, input.resumeId, input.jdText);
+            // Increment usage
+            await planService.incrementUsage(user.id, "aiGenerations");
+            return res;
+        }
+        catch (err) {
+            if (err instanceof trpc_1.TRPCError)
+                throw err;
+            console.error("Error generating resume for JD:", err);
             throw new trpc_1.TRPCError({
-                code: "FORBIDDEN",
-                message: `AI generation limit reached. You have ${limitCheck.remaining} generations remaining this month.`
+                code: "INTERNAL_SERVER_ERROR",
+                message: err.message || "Failed to generate resume"
             });
         }
-        const res = await matchService.generateForMatch({ id: current.id, role: current.role }, input.resumeId, input.jdText);
-        // Increment usage
-        await planService.incrementUsage(current.id, "aiGenerations");
-        return res;
     }),
     getMatch: trpc_1.protectedProcedure
         .input(zod_1.z.object({ matchId: zod_1.z.string() }))
         .query(async ({ input, ctx }) => {
-        const current = ctx.req.user;
-        if (!current)
-            throw new trpc_1.TRPCError({ code: "UNAUTHORIZED" });
-        const match = await matchService.getMatchById(input.matchId);
-        if (!match)
-            throw new trpc_1.TRPCError({ code: "NOT_FOUND" });
-        return match;
+        try {
+            const user = (0, validate_context_1.validateAuthContext)(ctx);
+            const match = await matchService.getMatchById(user.id, input.matchId);
+            return match;
+        }
+        catch (err) {
+            if (err instanceof trpc_1.TRPCError)
+                throw err;
+            if (err.status === 404)
+                throw new trpc_1.TRPCError({ code: "NOT_FOUND", message: err.message });
+            if (err.status === 403)
+                throw new trpc_1.TRPCError({ code: "FORBIDDEN", message: err.message });
+            console.error("Error getting match:", err);
+            throw new trpc_1.TRPCError({ code: "INTERNAL_SERVER_ERROR", message: err.message });
+        }
     })
 });

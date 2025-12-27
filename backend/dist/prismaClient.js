@@ -1,11 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const client_1 = require("@prisma/client");
-const prisma = global.__prisma ??
+const globalForPrisma = global;
+const prisma = globalForPrisma.prisma ??
     new client_1.PrismaClient({
         log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"]
     });
-if (process.env.NODE_ENV === "development") {
-    global.__prisma = prisma;
+// Always set global singleton for all environments (including serverless)
+if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = prisma;
 }
 exports.default = prisma;

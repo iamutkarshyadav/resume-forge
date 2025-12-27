@@ -36,7 +36,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.jobDescriptionRouter = void 0;
 const trpc_1 = require("../trpc");
 const zod_1 = require("zod");
+const validate_context_1 = require("../validate-context");
 const jdService = __importStar(require("../../services/jobDescription.service"));
+const httpError_1 = require("../../utils/httpError");
 exports.jobDescriptionRouter = (0, trpc_1.router)({
     save: trpc_1.protectedProcedure
         .input(zod_1.z.object({
@@ -46,14 +48,15 @@ exports.jobDescriptionRouter = (0, trpc_1.router)({
         tags: zod_1.z.array(zod_1.z.string()).optional()
     }))
         .mutation(async ({ input, ctx }) => {
-        const user = ctx.req.user;
-        if (!user)
-            throw new trpc_1.TRPCError({ code: "UNAUTHORIZED" });
         try {
+            const user = (0, validate_context_1.validateAuthContext)(ctx);
             const jd = await jdService.saveJobDescription(user.id, input.title, input.company, input.fullText, input.tags);
             return jd;
         }
         catch (err) {
+            if (err instanceof trpc_1.TRPCError)
+                throw err;
+            console.error("Error saving job description:", err);
             throw new trpc_1.TRPCError({
                 code: "INTERNAL_SERVER_ERROR",
                 message: err.message || "Failed to save job description"
@@ -61,16 +64,17 @@ exports.jobDescriptionRouter = (0, trpc_1.router)({
         }
     }),
     list: trpc_1.protectedProcedure
-        .input(zod_1.z.object({ tag: zod_1.z.string().optional() }))
+        .input(zod_1.z.object({ tag: zod_1.z.string().nullish() }))
         .query(async ({ input, ctx }) => {
-        const user = ctx.req.user;
-        if (!user)
-            throw new trpc_1.TRPCError({ code: "UNAUTHORIZED" });
         try {
+            const user = (0, validate_context_1.validateAuthContext)(ctx);
             const jds = await jdService.listJobDescriptions(user.id, input.tag);
             return jds;
         }
         catch (err) {
+            if (err instanceof trpc_1.TRPCError)
+                throw err;
+            console.error("Error listing job descriptions:", err);
             throw new trpc_1.TRPCError({
                 code: "INTERNAL_SERVER_ERROR",
                 message: err.message || "Failed to list job descriptions"
@@ -80,16 +84,18 @@ exports.jobDescriptionRouter = (0, trpc_1.router)({
     get: trpc_1.protectedProcedure
         .input(zod_1.z.object({ jdId: zod_1.z.string() }))
         .query(async ({ input, ctx }) => {
-        const user = ctx.req.user;
-        if (!user)
-            throw new trpc_1.TRPCError({ code: "UNAUTHORIZED" });
         try {
+            const user = (0, validate_context_1.validateAuthContext)(ctx);
             const jd = await jdService.getJobDescription(user.id, input.jdId);
             return jd;
         }
         catch (err) {
+            if (err instanceof trpc_1.TRPCError)
+                throw err;
+            const status = (0, httpError_1.getErrorStatus)(err);
+            console.error("Error getting job description:", err);
             throw new trpc_1.TRPCError({
-                code: err.statusCode === 404 ? "NOT_FOUND" : "INTERNAL_SERVER_ERROR",
+                code: status === 404 ? "NOT_FOUND" : status === 403 ? "FORBIDDEN" : "INTERNAL_SERVER_ERROR",
                 message: err.message || "Failed to get job description"
             });
         }
@@ -102,10 +108,8 @@ exports.jobDescriptionRouter = (0, trpc_1.router)({
         tags: zod_1.z.array(zod_1.z.string()).optional()
     }))
         .mutation(async ({ input, ctx }) => {
-        const user = ctx.req.user;
-        if (!user)
-            throw new trpc_1.TRPCError({ code: "UNAUTHORIZED" });
         try {
+            const user = (0, validate_context_1.validateAuthContext)(ctx);
             const updated = await jdService.updateJobDescription(user.id, input.jdId, {
                 title: input.title,
                 company: input.company,
@@ -114,8 +118,12 @@ exports.jobDescriptionRouter = (0, trpc_1.router)({
             return updated;
         }
         catch (err) {
+            if (err instanceof trpc_1.TRPCError)
+                throw err;
+            const status = (0, httpError_1.getErrorStatus)(err);
+            console.error("Error updating job description:", err);
             throw new trpc_1.TRPCError({
-                code: err.statusCode === 404 ? "NOT_FOUND" : "INTERNAL_SERVER_ERROR",
+                code: status === 404 ? "NOT_FOUND" : status === 403 ? "FORBIDDEN" : "INTERNAL_SERVER_ERROR",
                 message: err.message || "Failed to update job description"
             });
         }
@@ -123,16 +131,18 @@ exports.jobDescriptionRouter = (0, trpc_1.router)({
     delete: trpc_1.protectedProcedure
         .input(zod_1.z.object({ jdId: zod_1.z.string() }))
         .mutation(async ({ input, ctx }) => {
-        const user = ctx.req.user;
-        if (!user)
-            throw new trpc_1.TRPCError({ code: "UNAUTHORIZED" });
         try {
+            const user = (0, validate_context_1.validateAuthContext)(ctx);
             const result = await jdService.deleteJobDescription(user.id, input.jdId);
             return result;
         }
         catch (err) {
+            if (err instanceof trpc_1.TRPCError)
+                throw err;
+            const status = (0, httpError_1.getErrorStatus)(err);
+            console.error("Error deleting job description:", err);
             throw new trpc_1.TRPCError({
-                code: err.statusCode === 404 ? "NOT_FOUND" : "INTERNAL_SERVER_ERROR",
+                code: status === 404 ? "NOT_FOUND" : status === 403 ? "FORBIDDEN" : "INTERNAL_SERVER_ERROR",
                 message: err.message || "Failed to delete job description"
             });
         }
@@ -140,14 +150,15 @@ exports.jobDescriptionRouter = (0, trpc_1.router)({
     search: trpc_1.protectedProcedure
         .input(zod_1.z.object({ query: zod_1.z.string() }))
         .query(async ({ input, ctx }) => {
-        const user = ctx.req.user;
-        if (!user)
-            throw new trpc_1.TRPCError({ code: "UNAUTHORIZED" });
         try {
+            const user = (0, validate_context_1.validateAuthContext)(ctx);
             const results = await jdService.searchJobDescriptions(user.id, input.query);
             return results;
         }
         catch (err) {
+            if (err instanceof trpc_1.TRPCError)
+                throw err;
+            console.error("Error searching job descriptions:", err);
             throw new trpc_1.TRPCError({
                 code: "INTERNAL_SERVER_ERROR",
                 message: err.message || "Failed to search job descriptions"

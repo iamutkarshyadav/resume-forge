@@ -15,6 +15,11 @@ const prismaClient_1 = __importDefault(require("../prismaClient"));
 const date_fns_1 = require("date-fns");
 const bcryptjs_1 = require("bcryptjs");
 const httpError_1 = require("../utils/httpError");
+// Validate Prisma client is available
+if (!prismaClient_1.default) {
+    console.error("❌ CRITICAL: Prisma client not initialized. Check DATABASE_URL and Prisma setup.");
+    process.exit(1);
+}
 function parseExpiryToDate(base, expr) {
     const m = expr.match(/^(\d+)([smhd])$/i);
     if (!m)
@@ -51,18 +56,32 @@ function signRefreshToken(userId) {
 // CREATE SESSION (stores hashed refresh token)
 // ------------------------------------
 async function createSession(userId, refreshToken, _ip, _userAgent) {
-    const tokenHash = await (0, bcryptjs_1.hash)(refreshToken, 10);
-    const expiresAt = parseExpiryToDate(new Date(), env_1.env.JWT_REFRESH_TOKEN_EXPIRES_IN);
-    await prismaClient_1.default.refreshToken.create({
-        data: {
-            tokenHash,
-            userId,
-            expiresAt
+    try {
+        if (!prismaClient_1.default) {
+            throw new httpError_1.HttpError(500, "Database connection failed. Please try again.");
         }
-    });
+        const tokenHash = await (0, bcryptjs_1.hash)(refreshToken, 10);
+        const expiresAt = parseExpiryToDate(new Date(), env_1.env.JWT_REFRESH_TOKEN_EXPIRES_IN);
+        await prismaClient_1.default.refreshToken.create({
+            data: {
+                tokenHash,
+                userId,
+                expiresAt
+            }
+        });
+    }
+    catch (error) {
+        console.error("Error creating session:", error);
+        if (error instanceof httpError_1.HttpError)
+            throw error;
+        throw new httpError_1.HttpError(500, "Failed to create session. Please try again.");
+    }
 }
 async function verifyAndRotateRefreshToken(oldToken) {
     try {
+        if (!prismaClient_1.default) {
+            throw new httpError_1.HttpError(500, "Database connection failed. Please try again.");
+        }
         const payload = jsonwebtoken_1.default.verify(oldToken, env_1.env.JWT_REFRESH_TOKEN_SECRET);
         const userId = payload.sub;
         const tokens = await prismaClient_1.default.refreshToken.findMany({
@@ -78,7 +97,7 @@ async function verifyAndRotateRefreshToken(oldToken) {
             }
         }
         if (!matchedId)
-            throw new Error("Refresh token not recognized");
+            throw new httpError_1.HttpError(401, "Session expired. Please sign in again.");
         await prismaClient_1.default.refreshToken.update({ where: { id: matchedId }, data: { revoked: true } });
         const newRefresh = signRefreshToken(userId);
         await createSession(userId, newRefresh);
@@ -86,49 +105,73 @@ async function verifyAndRotateRefreshToken(oldToken) {
         return { userId, accessToken, refreshToken: newRefresh };
     }
     catch (e) {
-        throw new Error("Invalid refresh token");
+        if (e instanceof httpError_1.HttpError)
+            throw e;
+        throw new httpError_1.HttpError(401, "Session expired. Please sign in again.");
     }
 }
 // ------------------------------------
 // REGISTER LOCAL USER
 // ------------------------------------
 async function registerLocalUser(email, password, name) {
-    const existing = await prismaClient_1.default.user.findUnique({ where: { email } });
-    if (existing) {
-        throw new httpError_1.HttpError(409, "User already exists");
+    try {
+        if (!prismaClient_1.default) {
+            throw new httpError_1.HttpError(500, "Database connection failed. Please try again.");
+        }
+        const existing = await prismaClient_1.default.user.findUnique({ where: { email } });
+        if (existing) {
+            throw new httpError_1.HttpError(409, "Email already registered. Please sign in instead.");
+        }
+        const hashed = await (0, bcryptjs_1.hash)(password, 10);
+        const user = await prismaClient_1.default.user.create({
+            data: {
+                email,
+                name,
+                passwordHash: hashed
+            },
+            select: { id: true, email: true, name: true, role: true }
+        });
+        return user;
     }
-    const hashed = await (0, bcryptjs_1.hash)(password, 10);
-    const user = await prismaClient_1.default.user.create({
-        data: {
-            email,
-            name,
-            passwordHash: hashed
-        },
-        select: { id: true, email: true, name: true, role: true }
-    });
-    return user;
+    catch (error) {
+        console.error("Error registering user:", error);
+        if (error instanceof httpError_1.HttpError)
+            throw error;
+        throw new httpError_1.HttpError(500, "Failed to create account. Please try again.");
+    }
 }
 // ------------------------------------
 // LOGIN LOCAL USER
 // ------------------------------------
 async function loginLocalUser(email, password) {
-    const user = await prismaClient_1.default.user.findUnique({
-        where: { email },
-        select: {
-            id: true,
-            email: true,
-            name: true,
-            passwordHash: true,
-            role: true
+    try {
+        if (!prismaClient_1.default) {
+            throw new httpError_1.HttpError(500, "Database connection failed. Please try again.");
         }
-    });
-    if (!user || !user.passwordHash) {
-        throw new httpError_1.HttpError(401, "Invalid credentials");
+        const user = await prismaClient_1.default.user.findUnique({
+            where: { email },
+            select: {
+                id: true,
+                email: true,
+                name: true,
+                passwordHash: true,
+                role: true
+            }
+        });
+        if (!user || !user.passwordHash) {
+            throw new httpError_1.HttpError(401, "Invalid email or password");
+        }
+        const valid = await (0, bcryptjs_1.compare)(password, user.passwordHash);
+        if (!valid) {
+            throw new httpError_1.HttpError(401, "Invalid email or password");
+        }
+        const { passwordHash, ...safe } = user;
+        return safe;
     }
-    const valid = await (0, bcryptjs_1.compare)(password, user.passwordHash);
-    if (!valid) {
-        throw new httpError_1.HttpError(401, "Invalid credentials");
+    catch (error) {
+        console.error("Error logging in user:", error);
+        if (error instanceof httpError_1.HttpError)
+            throw error;
+        throw new httpError_1.HttpError(500, "Login failed. Please try again.");
     }
-    const { passwordHash, ...safe } = user;
-    return safe;
 }

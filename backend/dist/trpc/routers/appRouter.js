@@ -10,6 +10,8 @@ const match_router_1 = require("./match.router");
 const resumeVersion_router_1 = require("./resumeVersion.router");
 const jobDescription_router_1 = require("./jobDescription.router");
 const plan_router_1 = require("./plan.router");
+const activity_router_1 = require("./activity.router");
+const onboarding_router_1 = require("./onboarding.router");
 exports.appRouter = (0, trpc_1.router)({
     auth: auth_router_1.authRouter,
     user: user_router_1.userRouter,
@@ -18,5 +20,7 @@ exports.appRouter = (0, trpc_1.router)({
     match: match_router_1.matchRouter,
     resumeVersion: resumeVersion_router_1.resumeVersionRouter,
     jobDescription: jobDescription_router_1.jobDescriptionRouter,
-    plan: plan_router_1.planRouter
+    plan: plan_router_1.planRouter,
+    activity: activity_router_1.activityRouter,
+    onboarding: onboarding_router_1.onboardingRouter
 });

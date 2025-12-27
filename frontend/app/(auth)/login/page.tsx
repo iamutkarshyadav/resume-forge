@@ -18,6 +18,7 @@ import * as z from 'zod'
 import { trpc } from '@/lib/trpc'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { useErrorHandler } from '@/providers/error-provider'
 
 const formSchema = z.object({
     email: z.string().email('Invalid email address').min(1, 'Email is required'),
@@ -26,6 +27,7 @@ const formSchema = z.object({
 
 export default function LoginPage() {
     const router = useRouter();
+    const { showErrorFromException } = useErrorHandler();
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
         defaultValues: {
@@ -38,11 +40,15 @@ export default function LoginPage() {
         onSuccess: (data) => {
             localStorage.setItem('accessToken', data.accessToken);
             localStorage.setItem('refreshToken', data.refreshToken);
-            toast.success('Logged in successfully!');
-            router.push('/dashboard');
+
+            // Small delay to ensure localStorage is persisted and providers detect auth
+            setTimeout(() => {
+                toast.success('Logged in successfully!');
+                router.push('/dashboard');
+            }, 100);
         },
         onError: (error) => {
-            toast.error(error.message || 'Something went wrong');
+            showErrorFromException(error, 'Login Failed');
         }
     });
 

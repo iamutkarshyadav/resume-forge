@@ -21,10 +21,16 @@ export async function jwtAuth(req: AuthRequest, res: Response, next: NextFunctio
     try {
       payload = jwt.verify(token, env.JWT_ACCESS_TOKEN_SECRET) as { sub: string; iat: number; exp: number };
     } catch (err) {
-      return next();
+      console.warn("JWT verification failed:", (err as any)?.message);
+      // Don't call next() - token was provided but invalid
+      return res.status(401).json({ message: "Invalid or expired token" });
     }
 
-    if (!payload || !payload.sub) return next();
+    if (!payload || !payload.sub) {
+      console.warn("JWT payload missing or invalid");
+      // Token was provided but payload is invalid
+      return res.status(401).json({ message: "Invalid token payload" });
+    }
 
     // Select safe user fields (do not expose passwordHash)
     const user = await prisma.user.findUnique({
@@ -32,12 +38,16 @@ export async function jwtAuth(req: AuthRequest, res: Response, next: NextFunctio
       select: { id: true, email: true, name: true, role: true }
     });
 
-    if (!user) return next();
+    if (!user) {
+      console.warn(`User not found for JWT sub: ${payload.sub}`);
+      // Token was valid but user doesn't exist
+      return res.status(401).json({ message: "User not found" });
+    }
 
     req.user = user;
     return next();
   } catch (err: any) {
-    console.error("JWT auth error:", err);
-    return next();
+    console.error("JWT auth middleware error:", err?.message || err);
+    return res.status(500).json({ message: "Authentication error" });
   }
 }

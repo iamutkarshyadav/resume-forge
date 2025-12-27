@@ -1,34 +1,46 @@
 import { router, protectedProcedure, TRPCError } from "../trpc";
 import { z } from "zod";
+import { validateAuthContext } from "../validate-context";
+import fs from "fs";
 
 export const fileRouter = router({
   deleteFile: protectedProcedure
     .input(z.object({ fileId: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      const current = (ctx.req as any).user;
-      if (!current) {
-        throw new TRPCError({ code: "UNAUTHORIZED" });
+      try {
+        const user = validateAuthContext(ctx);
+
+        const resume = await ctx.prisma.resume.findUnique({
+          where: { id: input.fileId }
+        });
+
+        if (!resume) throw new TRPCError({ code: "NOT_FOUND" });
+
+        // Ownership check
+        if (resume.uploadedById !== user.id && String(user.role || "").toUpperCase() !== "ADMIN") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+
+        // Delete file from filesystem with error logging
+        const path = (resume.jsonData as any)?.path as string | undefined;
+        if (path) {
+          try {
+            fs.unlinkSync(path);
+          } catch (err: any) {
+            console.warn(`Failed to delete file at ${path}:`, err?.message || String(err));
+            // Continue - database deletion should still succeed
+          }
+        }
+
+        await ctx.prisma.resume.delete({ where: { id: resume.id } });
+        return { success: true };
+      } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
+        console.error("Error deleting file:", err);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to delete file"
+        });
       }
-
-      const resume = await ctx.prisma.resume.findUnique({
-        where: { id: input.fileId }
-      });
-
-      if (!resume) throw new TRPCError({ code: "NOT_FOUND" });
-
-      // Ownership check
-      if (resume.uploadedById !== current.id && String(current.role || "").toUpperCase() !== "ADMIN") {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
-
-      const path = (resume.jsonData as any)?.path as string | undefined;
-      if (path) {
-        try {
-          require("fs").unlinkSync(path);
-        } catch {}
-      }
-
-      await ctx.prisma.resume.delete({ where: { id: resume.id } });
-      return { success: true };
     })
 });

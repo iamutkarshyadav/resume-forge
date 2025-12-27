@@ -7,5 +7,5 @@ exports.createContext = createContext;
 const prismaClient_1 = __importDefault(require("../prismaClient"));
 async function createContext({ req, res }) {
     const user = req.user;
-    return { req, res, prisma: prismaClient_1.default, user };
+    return { req: req, res, prisma: prismaClient_1.default, user };
 }

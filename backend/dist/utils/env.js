@@ -7,13 +7,18 @@ exports.env = void 0;
 const zod_1 = require("zod");
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
+const isProduction = process.env.NODE_ENV === "production";
 const envSchema = zod_1.z.object({
     NODE_ENV: zod_1.z.enum(["development", "production", "test"]).default("development"),
     PORT: zod_1.z.string().transform((val) => parseInt(val, 10)).default("4000"),
     BASE_URL: zod_1.z.string().url().default("http://localhost:4000"),
-    DATABASE_URL: zod_1.z.string().default("mongodb://localhost:27017/resume-dev"),
-    JWT_ACCESS_TOKEN_SECRET: zod_1.z.string().min(20).default("dev-access-secret-please-change-123456"),
-    JWT_REFRESH_TOKEN_SECRET: zod_1.z.string().min(20).default("dev-refresh-secret-please-change-123456"),
+    DATABASE_URL: zod_1.z.string().min(1, "DATABASE_URL is required"),
+    JWT_ACCESS_TOKEN_SECRET: zod_1.z.string()
+        .min(32, "JWT_ACCESS_TOKEN_SECRET must be at least 32 characters")
+        .refine((val) => !isProduction || !val.includes("dev-"), "Production JWT_ACCESS_TOKEN_SECRET must not use dev defaults"),
+    JWT_REFRESH_TOKEN_SECRET: zod_1.z.string()
+        .min(32, "JWT_REFRESH_TOKEN_SECRET must be at least 32 characters")
+        .refine((val) => !isProduction || !val.includes("dev-"), "Production JWT_REFRESH_TOKEN_SECRET must not use dev defaults"),
     JWT_ACCESS_TOKEN_EXPIRES_IN: zod_1.z.string().default("15m"),
     JWT_REFRESH_TOKEN_EXPIRES_IN: zod_1.z.string().default("30d"),
     GOOGLE_CLIENT_ID: zod_1.z.string().optional(),
@@ -32,4 +37,19 @@ const envSchema = zod_1.z.object({
     GEMINI_API_KEY: zod_1.z.string().optional(),
     GEMINI_MODEL: zod_1.z.string().default("gemini-2.5-flash")
 });
-exports.env = envSchema.parse(process.env);
+try {
+    var env = envSchema.parse(process.env);
+    exports.env = env;
+}
+catch (err) {
+    console.error("\n❌ Invalid environment configuration:");
+    if (err.errors) {
+        err.errors.forEach((e) => {
+            console.error(`  - ${e.path.join(".")}: ${e.message}`);
+        });
+    }
+    else {
+        console.error(err.message);
+    }
+    process.exit(1);
+}

@@ -13,7 +13,10 @@ passport_1.default.serializeUser((user, done) => {
 });
 passport_1.default.deserializeUser(async (id, done) => {
     try {
-        const user = await prismaClient_1.default.user.findUnique({ where: { id } });
+        const user = await prismaClient_1.default.user.findUnique({
+            where: { id },
+            select: { id: true, email: true, name: true, role: true }
+        });
         done(null, user);
     }
     catch (err) {

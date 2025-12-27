@@ -2,6 +2,7 @@ import express from "express";
 import helmet from "helmet";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import jwt from "jsonwebtoken";
 import passport from "./middleware/passport";
 import { morganMiddleware } from "./utils/logger";
 import { apiRateLimiter } from "./middleware/rate.middleware";
@@ -13,6 +14,7 @@ import { jwtAuth } from "./middleware/jwt.middleware";
 import path from "path";
 import fs from "fs";
 import { createContext } from "./trpc/context";
+import prisma from "./prismaClient";
 
 import * as trpcExpress from "@trpc/server/adapters/express";
 import { appRouter } from "./trpc/routers/appRouter";
@@ -130,10 +132,59 @@ app.post("/api/v1/match/analyze", jwtAuth, express.json(), analyzeHandler);
 app.post("/api/v1/match/generate", jwtAuth, express.json(), generateHandler);
 app.get("/api/v1/match/:id", jwtAuth, getMatchHandler);
 
-// tRPC handler
+// Lightweight middleware to populate user from JWT (without rejecting)
+// This allows tRPC public/protected procedures to handle auth themselves
+const populateUserFromJWT = async (req: any, res: any, next: any) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return next();
+
+    const parts = authHeader.split(" ").filter(Boolean);
+    const token = parts.length === 1 ? parts[0] : parts[1];
+    if (!token) return next();
+
+    let payload: any;
+    try {
+      payload = jwt.verify(token, env.JWT_ACCESS_TOKEN_SECRET) as { sub: string; iat: number; exp: number };
+    } catch (err) {
+      // Token was provided but invalid - let tRPC handle this
+      // Don't reject here, just skip setting user
+      console.warn("JWT verification failed:", (err as any)?.message);
+      return next();
+    }
+
+    if (!payload || !payload.sub) {
+      console.warn("JWT payload missing or invalid");
+      return next();
+    }
+
+    // Populate user if token is valid
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { id: true, email: true, name: true, role: true }
+      });
+
+      if (user) {
+        req.user = user;
+      }
+    } catch (err) {
+      // DB error - don't reject, let tRPC handle
+      console.error("Error fetching user:", (err as any)?.message);
+    }
+
+    return next();
+  } catch (err: any) {
+    // Unexpected error - don't reject, let request proceed
+    console.error("populateUserFromJWT middleware error:", err?.message || err);
+    return next();
+  }
+};
+
+// tRPC handler - uses lightweight middleware that populates user but doesn't reject
 app.use(
   "/api/v1/trpc",
-  jwtAuth,
+  populateUserFromJWT,
   trpcExpress.createExpressMiddleware({
     router: appRouter,
     createContext

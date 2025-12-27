@@ -82,6 +82,7 @@ model Resume {
   versions     ResumeVersion[]
   analyses     MatchAnalysis[]
   feedbacks    Feedback[]
+  applications Application[]
 
   createdAt    DateTime         @default(now())
   updatedAt    DateTime?        @updatedAt
@@ -103,6 +104,8 @@ model ResumeVersion {
 
   scoreAtCreation Int?            // Score when this version was created
   scoreImprovement Int?           // Delta from previous version
+
+  applications    Application[]
 
   createdAt       DateTime        @default(now())
 }
@@ -132,8 +135,7 @@ model MatchAnalysis {
   jd              JobDescription? @relation(fields: [jdId], references: [id], onDelete: SetNull)
   jdId            String?
 
-  application     Application?    @relation(fields: [applicationId], references: [id], onDelete: SetNull)
-  applicationId   String?
+  application     Application?    @relation("MatchAnalysisToApplication")
 
   summary         String
   score           Int
@@ -187,8 +189,8 @@ model Application {
   jd             JobDescription @relation(fields: [jdId], references: [id], onDelete: Cascade)
   jdId           String
 
-  analysis       MatchAnalysis?  @relation(fields: [analysisId], references: [id], onDelete: SetNull)
-  analysisId     String?
+  analysis       MatchAnalysis?  @relation("MatchAnalysisToApplication", fields: [analysisId], references: [id], onDelete: SetNull)
+  analysisId     String? @unique
 
   status         String          @default("draft")  // "draft", "ready", "applied", "rejected", "archived"
 

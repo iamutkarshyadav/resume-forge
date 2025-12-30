@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,15 +14,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   ArrowLeft,
   Loader2,
-  Download,
   ChevronRight,
   CheckCircle2,
   Circle,
@@ -55,8 +48,6 @@ export default function AnalyzeForJobPage() {
   const [selectedJdId, setSelectedJdId] = useState<string>("");
   const [jdText, setJdText] = useState("");
   const [loading, setLoading] = useState(false);
-  const [generatingResume, setGeneratingResume] = useState(false);
-  const [showGeneratedResume, setShowGeneratedResume] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [mounted, setMounted] = useState(false);
 
@@ -144,33 +135,29 @@ export default function AnalyzeForJobPage() {
     }
   };
 
-  const handleGenerateResume = async () => {
-    if (!selectedResumeId) return;
+  const handleGenerateResume = useCallback(() => {
+    if (!selectedResumeId) {
+      toast.error("Please select a resume first");
+      return;
+    }
 
     const textToAnalyze = jdMode === "paste" ? jdText : savedJds.find(j => j.id === selectedJdId)?.fullText;
-    if (!textToAnalyze) return;
-
-    setGeneratingResume(true);
-    try {
-      const response = await generateMutation.mutateAsync({
-        resumeId: selectedResumeId,
-        jdText: textToAnalyze.trim(),
-      });
-
-      setResult((prev) => ({
-        ...prev,
-        generated: response.generated,
-        match: { ...prev?.match, generatedResume: response.match?.generatedResume },
-      }));
-      setShowGeneratedResume(true);
-      toast.success("Resume generated successfully!");
-    } catch (error) {
-      console.error("Generation error:", error);
-      showErrorFromException(error, "Generation Failed");
-    } finally {
-      setGeneratingResume(false);
+    if (!textToAnalyze || !textToAnalyze.trim()) {
+      toast.error("Please provide a job description");
+      return;
     }
-  };
+
+    // Show loading toast and navigate immediately
+    // Generation happens in background on the resume preview page
+    toast.loading("Generating your optimized resume...");
+
+    const params = new URLSearchParams({
+      resumeId: selectedResumeId,
+      jdText: textToAnalyze.trim(),
+    });
+
+    router.push(`/resume-preview?${params.toString()}`);
+  }, [selectedResumeId, jdMode, jdText, selectedJdId, savedJds]);
 
   const step1Complete = !!selectedResumeId;
   const step2Complete = step === "results";
@@ -193,43 +180,8 @@ export default function AnalyzeForJobPage() {
             data={result}
             onGenerateResume={handleGenerateResume}
             onAnalyzeAnother={() => setStep("choose-jd")}
-            generatingResume={generatingResume}
           />
         </div>
-
-        <Dialog open={showGeneratedResume} onOpenChange={setShowGeneratedResume}>
-          <DialogContent className="bg-neutral-950 border border-neutral-800 rounded-2xl max-w-2xl max-h-[80vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Improved Resume</DialogTitle>
-            </DialogHeader>
-
-            <div className="space-y-4 py-4">
-              {result?.generated ? (
-                <>
-                  <div className="prose prose-invert max-w-none text-sm">
-                    <pre className="bg-neutral-900 p-4 rounded-lg border border-neutral-800 text-xs overflow-x-auto">
-                      {JSON.stringify(result.generated, null, 2)}
-                    </pre>
-                  </div>
-
-                  <Button
-                    onClick={() => {
-                      toast.info("Download feature coming soon");
-                    }}
-                    className="w-full bg-white text-black hover:bg-neutral-200 rounded-lg"
-                  >
-                    <Download className="h-4 w-4 mr-2" />
-                    Download Improved Resume
-                  </Button>
-                </>
-              ) : (
-                <div className="text-center py-8 text-neutral-400">
-                  <p>Failed to generate resume</p>
-                </div>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
       </main>
     );
   }
@@ -617,41 +569,6 @@ export default function AnalyzeForJobPage() {
           </div>
         </div>
       </div>
-
-      {/* GENERATED RESUME MODAL */}
-      <Dialog open={showGeneratedResume} onOpenChange={setShowGeneratedResume}>
-        <DialogContent className="bg-neutral-950 border border-neutral-800 rounded-2xl max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Improved Resume</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            {result?.generated ? (
-              <>
-                <div className="prose prose-invert max-w-none text-sm">
-                  <pre className="bg-neutral-900 p-4 rounded-lg border border-neutral-800 text-xs overflow-x-auto">
-                    {JSON.stringify(result.generated, null, 2)}
-                  </pre>
-                </div>
-
-                <Button
-                  onClick={() => {
-                    toast.info("Download feature coming soon");
-                  }}
-                  className="w-full bg-white text-black hover:bg-neutral-200 rounded-lg"
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Download Improved Resume
-                </Button>
-              </>
-            ) : (
-              <div className="text-center py-8 text-neutral-400">
-                <p>Failed to generate resume</p>
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </main>
   );
 }

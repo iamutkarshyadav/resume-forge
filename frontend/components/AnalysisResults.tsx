@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,16 +31,23 @@ interface AnalysisResultsProps {
   data: AnalysisData;
   onGenerateResume: () => void;
   onAnalyzeAnother: () => void;
-  generatingResume?: boolean;
 }
 
 export function AnalysisResults({
   data,
   onGenerateResume,
   onAnalyzeAnother,
-  generatingResume = false,
 }: AnalysisResultsProps) {
   const [stickyVisible, setStickyVisible] = useState(true);
+
+  // Wrap handlers to avoid unnecessary re-renders
+  const handleGenerate = useCallback(() => {
+    onGenerateResume();
+  }, [onGenerateResume]);
+
+  const handleAnalyzeAnother = useCallback(() => {
+    onAnalyzeAnother();
+  }, [onAnalyzeAnother]);
   const score = data.match?.score ?? 0;
   const strengths = data.match?.strengths ?? [];
   const weaknesses = data.match?.weaknesses ?? [];
@@ -227,22 +234,12 @@ export function AnalysisResults({
 
         {/* Primary CTA */}
         <Button
-          onClick={onGenerateResume}
-          disabled={generatingResume}
+          onClick={handleGenerate}
           className="w-full bg-white text-black hover:bg-neutral-200 rounded-lg py-6 text-base font-semibold"
         >
-          {generatingResume ? (
-            <>
-              <div className="animate-spin h-4 w-4 border-2 border-black border-t-transparent rounded-full mr-2" />
-              Generating Improved Resume...
-            </>
-          ) : (
-            <>
-              <Zap className="h-5 w-5 mr-2" />
-              Generate Improved Resume
-              <ArrowRight className="h-4 w-4 ml-2" />
-            </>
-          )}
+          <Zap className="h-5 w-5 mr-2" />
+          Generate Improved Resume
+          <ArrowRight className="h-4 w-4 ml-2" />
         </Button>
       </motion.section>
 
@@ -631,15 +628,14 @@ export function AnalysisResults({
         >
           <div className="max-w-4xl mx-auto flex gap-3">
             <Button
-              onClick={onAnalyzeAnother}
+              onClick={handleAnalyzeAnother}
               variant="outline"
               className="flex-1 border-neutral-700 text-neutral-300 rounded-lg"
             >
               Analyze Another
             </Button>
             <Button
-              onClick={onGenerateResume}
-              disabled={generatingResume}
+              onClick={handleGenerate}
               className="flex-1 bg-white text-black hover:bg-neutral-200 rounded-lg font-semibold"
             >
               Generate Improved Resume

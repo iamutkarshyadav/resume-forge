@@ -6,6 +6,7 @@ import React, { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { ErrorProvider } from "@/providers/error-provider";
 import { OnboardingProvider } from "@/providers/onboarding-provider";
+import { ResumeGenerationProvider } from "@/providers/resume-generation-provider";
 import { toast } from "sonner";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
@@ -71,7 +72,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
         <ErrorProvider>
-          <OnboardingProvider>{children}</OnboardingProvider>
+          <ResumeGenerationProvider>
+            <OnboardingProvider>{children}</OnboardingProvider>
+          </ResumeGenerationProvider>
         </ErrorProvider>
       </QueryClientProvider>
     </trpc.Provider>

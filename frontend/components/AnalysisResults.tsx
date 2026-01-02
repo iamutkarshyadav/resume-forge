@@ -238,7 +238,7 @@ export function AnalysisResults({
           className="w-full bg-white text-black hover:bg-neutral-200 rounded-lg py-6 text-base font-semibold"
         >
           <Zap className="h-5 w-5 mr-2" />
-          Generate Improved Resume
+          Generate Better Résumé
           <ArrowRight className="h-4 w-4 ml-2" />
         </Button>
       </motion.section>

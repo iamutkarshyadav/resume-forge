@@ -147,16 +147,13 @@ export default function AnalyzeForJobPage() {
       return;
     }
 
-    // Show loading toast and navigate immediately
-    // Generation happens in background on the resume preview page
-    toast.loading("Generating your optimized resume...");
-
+    // Navigate to the new resume generation flow
     const params = new URLSearchParams({
       resumeId: selectedResumeId,
-      jdText: textToAnalyze.trim(),
+      jdText: encodeURIComponent(textToAnalyze.trim()),
     });
 
-    router.push(`/resume-preview?${params.toString()}`);
+    router.push(`/resume/generate?${params.toString()}`);
   }, [selectedResumeId, jdMode, jdText, selectedJdId, savedJds]);
 
   const step1Complete = !!selectedResumeId;

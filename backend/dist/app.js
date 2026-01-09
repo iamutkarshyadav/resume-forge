@@ -40,6 +40,7 @@ const express_1 = __importDefault(require("express"));
 const helmet_1 = __importDefault(require("helmet"));
 const cors_1 = __importDefault(require("cors"));
 const cookie_parser_1 = __importDefault(require("cookie-parser"));
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const passport_1 = __importDefault(require("./middleware/passport"));
 const logger_1 = require("./utils/logger");
 const rate_middleware_1 = require("./middleware/rate.middleware");
@@ -50,7 +51,9 @@ const jd_controller_1 = require("./controller/jd.controller");
 const jwt_middleware_1 = require("./middleware/jwt.middleware");
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
+const stripe_service_1 = require("./services/stripe.service");
 const context_1 = require("./trpc/context");
+const prismaClient_1 = __importDefault(require("./prismaClient"));
 const trpcExpress = __importStar(require("@trpc/server/adapters/express"));
 const appRouter_1 = require("./trpc/routers/appRouter");
 const app = (0, express_1.default)();
@@ -145,14 +148,77 @@ app.post("/api/v1/auth/refresh", express_1.default.json(), async (req, res, next
         next(err);
     }
 });
+// Stripe webhook (raw body, no JSON parsing)
+app.post("/api/v1/stripe/webhook", express_1.default.raw({ type: "application/json" }), async (req, res) => {
+    try {
+        const signature = req.headers["stripe-signature"];
+        if (!signature) {
+            return res.status(400).json({ error: "Missing stripe signature" });
+        }
+        const event = await (0, stripe_service_1.verifyWebhookSignature)(req.body.toString(), signature);
+        await (0, stripe_service_1.handleStripeEvent)(event);
+        res.json({ received: true });
+    }
+    catch (err) {
+        console.error("Webhook error:", err);
+        res.status(400).json({ error: err.message });
+    }
+});
 // REST JD + match endpoints
 app.post("/api/v1/jd", jwt_middleware_1.jwtAuth, express_1.default.json(), jd_controller_1.createJDTextHandler);
 app.post("/api/v1/jd/upload", jwt_middleware_1.jwtAuth, jd_controller_1.uploadJDHandler); // always rejects
 app.post("/api/v1/match/analyze", jwt_middleware_1.jwtAuth, express_1.default.json(), jd_controller_1.analyzeHandler);
 app.post("/api/v1/match/generate", jwt_middleware_1.jwtAuth, express_1.default.json(), jd_controller_1.generateHandler);
 app.get("/api/v1/match/:id", jwt_middleware_1.jwtAuth, jd_controller_1.getMatchHandler);
-// tRPC handler
-app.use("/api/v1/trpc", jwt_middleware_1.jwtAuth, trpcExpress.createExpressMiddleware({
+// Lightweight middleware to populate user from JWT (without rejecting)
+// This allows tRPC public/protected procedures to handle auth themselves
+const populateUserFromJWT = async (req, res, next) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader)
+            return next();
+        const parts = authHeader.split(" ").filter(Boolean);
+        const token = parts.length === 1 ? parts[0] : parts[1];
+        if (!token)
+            return next();
+        let payload;
+        try {
+            payload = jsonwebtoken_1.default.verify(token, env_1.env.JWT_ACCESS_TOKEN_SECRET);
+        }
+        catch (err) {
+            // Token was provided but invalid - let tRPC handle this
+            // Don't reject here, just skip setting user
+            console.warn("JWT verification failed:", err?.message);
+            return next();
+        }
+        if (!payload || !payload.sub) {
+            console.warn("JWT payload missing or invalid");
+            return next();
+        }
+        // Populate user if token is valid
+        try {
+            const user = await prismaClient_1.default.user.findUnique({
+                where: { id: payload.sub },
+                select: { id: true, email: true, name: true, role: true }
+            });
+            if (user) {
+                req.user = user;
+            }
+        }
+        catch (err) {
+            // DB error - don't reject, let tRPC handle
+            console.error("Error fetching user:", err?.message);
+        }
+        return next();
+    }
+    catch (err) {
+        // Unexpected error - don't reject, let request proceed
+        console.error("populateUserFromJWT middleware error:", err?.message || err);
+        return next();
+    }
+};
+// tRPC handler - uses lightweight middleware that populates user but doesn't reject
+app.use("/api/v1/trpc", populateUserFromJWT, trpcExpress.createExpressMiddleware({
     router: appRouter_1.appRouter,
     createContext: context_1.createContext
 }));

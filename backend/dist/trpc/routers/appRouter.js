@@ -12,6 +12,8 @@ const jobDescription_router_1 = require("./jobDescription.router");
 const plan_router_1 = require("./plan.router");
 const activity_router_1 = require("./activity.router");
 const onboarding_router_1 = require("./onboarding.router");
+const billing_router_1 = require("./billing.router");
+const pdf_router_1 = require("./pdf.router");
 exports.appRouter = (0, trpc_1.router)({
     auth: auth_router_1.authRouter,
     user: user_router_1.userRouter,
@@ -22,5 +24,7 @@ exports.appRouter = (0, trpc_1.router)({
     jobDescription: jobDescription_router_1.jobDescriptionRouter,
     plan: plan_router_1.planRouter,
     activity: activity_router_1.activityRouter,
-    onboarding: onboarding_router_1.onboardingRouter
+    onboarding: onboarding_router_1.onboardingRouter,
+    billing: billing_router_1.billingRouter,
+    pdf: pdf_router_1.pdfRouter,
 });

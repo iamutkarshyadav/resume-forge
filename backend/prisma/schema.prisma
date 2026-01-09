@@ -13,6 +13,7 @@ model User {
   name            String?
   passwordHash    String?         // null for OAuth users
   role            Role            @default(USER)
+  credits         Int             @default(0)         // PDF download credits
   accounts        Account[]
   refreshTokens   RefreshToken[]
   resumes         Resume[]
@@ -21,6 +22,7 @@ model User {
   applications    Application[]
   plan            UserPlan?
   usageMetrics    UsageMetrics[]
+  transactions    BillingTransaction[]
   onboarding      OnboardingProgress?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
@@ -228,4 +230,18 @@ model UsageMetrics {
   updatedAt           DateTime @updatedAt
 
   @@unique([userId, month])
+}
+
+model BillingTransaction {
+  id              String   @id @default(cuid()) @map("_id")
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId          String
+
+  type            String   // "purchase", "deduction", "refund"
+  amount          Int      // credits added/deducted
+  reason          String?  // "pdf_download", "stripe_checkout_<sessionId>", etc
+  stripeSessionId String?  @unique
+  metadata        Json?
+
+  createdAt       DateTime @default(now())
 }

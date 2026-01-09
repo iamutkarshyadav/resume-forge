@@ -9,6 +9,8 @@ import { jobDescriptionRouter } from "./jobDescription.router";
 import { planRouter } from "./plan.router";
 import { activityRouter } from "./activity.router";
 import { onboardingRouter } from "./onboarding.router";
+import { billingRouter } from "./billing.router";
+import { pdfRouter } from "./pdf.router";
 
 export const appRouter = router({
   auth: authRouter,
@@ -20,7 +22,9 @@ export const appRouter = router({
   jobDescription: jobDescriptionRouter,
   plan: planRouter,
   activity: activityRouter,
-  onboarding: onboardingRouter
+  onboarding: onboardingRouter,
+  billing: billingRouter,
+  pdf: pdfRouter,
 });
 
 export type AppRouter = typeof appRouter;

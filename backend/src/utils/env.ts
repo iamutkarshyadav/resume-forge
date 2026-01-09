@@ -39,7 +39,12 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.string().transform((v) => parseInt(v, 10)).default("60000"),
   RATE_LIMIT_MAX: z.string().transform((v) => parseInt(v, 10)).default("100"),
   GEMINI_API_KEY: z.string().optional(),
-  GEMINI_MODEL: z.string().default("gemini-2.5-flash")
+  GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
+  STRIPE_SECRET_KEY: z.string().min(1, "STRIPE_SECRET_KEY is required for billing"),
+  STRIPE_PUBLISHABLE_KEY: z.string().min(1, "STRIPE_PUBLISHABLE_KEY is required for billing"),
+  STRIPE_WEBHOOK_SECRET: z.string().min(1, "STRIPE_WEBHOOK_SECRET is required for webhook verification (live mode)"),
+  STRIPE_TEST_WEBHOOK_SECRET: z.string().min(1, "STRIPE_TEST_WEBHOOK_SECRET is REQUIRED for test mode webhook verification. Get it from: Stripe Dashboard → Developers → Webhooks → [your test endpoint] → Signing secret"),
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().optional()
 });
 
 try {

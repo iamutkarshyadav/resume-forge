@@ -17,6 +17,7 @@ import {
   GitBranch,
   TrendingUp,
   Settings,
+  Loader2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -72,6 +73,7 @@ const MAIN_NAV: NavSection[] = [
 export function AppSidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { data: user, isLoading } = trpc.user.getProfile.useQuery();
+  const { data: creditsData, isLoading: creditsLoading } = trpc.billing.getUserCredits.useQuery();
 
   return (
     <aside
@@ -166,28 +168,51 @@ export function AppSidebar() {
       {/* Footer / User Info */}
       <div className="p-4 border-t border-neutral-800">
         {!isCollapsed && (
-          <div className="bg-white text-black rounded-lg p-3 shadow-sm mb-3">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-sm font-semibold">Free Plan</h2>
-              <Crown className="h-4 w-4 text-yellow-600" />
+          <div className="bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-lg p-4 shadow-sm mb-3">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold">PDF Credits</h2>
+              <Zap className="h-4 w-4 text-yellow-300" />
             </div>
 
-            <Slider
-              defaultValue={[40]}
-              max={100}
-              step={1}
-              className="mt-2 cursor-pointer"
-            />
+            {creditsLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-8 w-12" />
+                <Skeleton className="h-4 w-32" />
+              </div>
+            ) : (
+              <>
+                <p className="text-3xl font-bold mb-1">{creditsData?.credits || 0}</p>
+                <p className="text-xs text-blue-100 mb-3">
+                  {creditsData && creditsData.credits > 0
+                    ? `Download ${creditsData.credits} ${creditsData.credits === 1 ? "resume" : "resumes"}`
+                    : "No credits available"}
+                </p>
 
-            <p className="text-xs text-neutral-600 mt-2">4 / 10 analyses</p>
+                <Button
+                  asChild
+                  className="w-full bg-white text-blue-600 hover:bg-blue-50 cursor-pointer flex items-center justify-center gap-2 rounded-lg font-semibold"
+                >
+                  <Link href="/billing">
+                    <Zap className="h-4 w-4" />
+                    Get More Credits
+                  </Link>
+                </Button>
+              </>
+            )}
+          </div>
+        )}
 
-            <Button
-              variant="default"
-              className="w-full mt-3 bg-black text-white hover:bg-neutral-800 cursor-pointer flex items-center justify-center gap-2 rounded-lg"
-            >
-              <Crown className="h-4 w-4 text-yellow-400" />
-              Upgrade
-            </Button>
+        {isCollapsed && (
+          <div className="flex justify-center mb-3">
+            <div className="bg-blue-600 text-white rounded-lg p-3 w-12 h-12 flex items-center justify-center shadow-sm">
+              <div className="text-center">
+                {creditsLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <span className="text-sm font-bold">{creditsData?.credits || 0}</span>
+                )}
+              </div>
+            </div>
           </div>
         )}
 

@@ -13,6 +13,7 @@ import { uploadJDHandler, analyzeHandler, generateHandler, getMatchHandler, crea
 import { jwtAuth } from "./middleware/jwt.middleware";
 import path from "path";
 import fs from "fs";
+import { handleStripeEvent, verifyWebhookSignature } from "./services/stripe.service";
 import { createContext } from "./trpc/context";
 import prisma from "./prismaClient";
 
@@ -122,6 +123,109 @@ app.post("/api/v1/auth/refresh", express.json(), async (req, res, next) => {
     res.json(result);
   } catch (err) {
     next(err);
+  }
+});
+
+// ✅ Stripe webhook (raw body, no JSON parsing)
+// This endpoint is the source of truth for payment confirmation
+app.post("/api/v1/stripe/webhook", express.raw({ type: "application/json" }), async (req: any, res) => {
+  const webhookStartTime = Date.now();
+
+  try {
+    // ✅ STEP 1: Extract signature
+    const signature = req.headers["stripe-signature"];
+    if (!signature) {
+      console.error("❌ WEBHOOK: Missing stripe-signature header", {
+        headers: Object.keys(req.headers),
+      });
+      return res.status(400).json({ error: "Missing stripe signature" });
+    }
+
+    // ✅ STEP 2: Verify signature
+    let event: any;
+    try {
+      event = await verifyWebhookSignature(req.body.toString(), signature);
+      console.log("✅ WEBHOOK: Signature verified for event", {
+        eventId: event.id,
+        eventType: event.type,
+        livemode: event.livemode,
+        timestamp: event.created,
+      });
+    } catch (err: any) {
+      console.error("❌ WEBHOOK: Signature verification failed:", {
+        error: err.message,
+        signaturePrefix: signature.substring(0, 20) + "...",
+        bodyLength: req.body.length,
+      });
+      return res.status(400).json({ error: "Signature verification failed" });
+    }
+
+    // ✅ STEP 3: Process event
+    try {
+      // Wrap webhook processing with timeout to prevent hanging
+      // Stripe expects response within ~30 seconds, so we timeout at 25 seconds
+      const WEBHOOK_TIMEOUT_MS = 25000;
+
+      const processWithTimeout = Promise.race([
+        handleStripeEvent(event),
+        new Promise<void>((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`Webhook processing exceeded ${WEBHOOK_TIMEOUT_MS}ms timeout`)),
+            WEBHOOK_TIMEOUT_MS
+          )
+        )
+      ]);
+
+      await processWithTimeout;
+      const duration = Date.now() - webhookStartTime;
+
+      console.log("✅ WEBHOOK: Event processed successfully", {
+        eventId: event.id,
+        eventType: event.type,
+        durationMs: duration,
+        timestamp: new Date().toISOString(),
+      });
+
+      // ✅ STEP 4: Return 200 to acknowledge receipt
+      return res.status(200).json({
+        received: true,
+        eventId: event.id,
+        processingTimeMs: duration,
+      });
+    } catch (err: any) {
+      const duration = Date.now() - webhookStartTime;
+
+      console.error("❌ WEBHOOK: Event processing failed:", {
+        eventId: event.id,
+        eventType: event.type,
+        error: err.message,
+        durationMs: duration,
+        stack: err.stack?.substring(0, 500), // Log first 500 chars of stack
+      });
+
+      // ✅ Return 500 so Stripe retries the webhook
+      // This is critical - Stripe will retry for up to 3 days
+      return res.status(500).json({
+        error: "Event processing failed",
+        eventId: event.id,
+        message: err.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  } catch (err: any) {
+    const duration = Date.now() - webhookStartTime;
+
+    console.error("❌ WEBHOOK: Unexpected error in webhook handler:", {
+      error: err.message,
+      durationMs: duration,
+      stack: err.stack?.substring(0, 500),
+    });
+
+    // ✅ Return 500 for unexpected errors so Stripe retries
+    return res.status(500).json({
+      error: "Internal server error",
+      timestamp: new Date().toISOString(),
+    });
   }
 });
 

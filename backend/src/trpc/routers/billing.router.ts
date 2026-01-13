@@ -111,7 +111,7 @@ export const billingRouter = router({
             userId: user.id,
             planId: input.planId,
             credits: plan.credits.toString(),
-            idempotencyKey: input.idempotencyKey, // ✅ Track frontend idempotency
+            idempotencyKey: input.idempotencyKey ?? null, // ✅ Track frontend idempotency
           },
         });
 

@@ -13,6 +13,7 @@ import { uploadJDHandler, analyzeHandler, generateHandler, getMatchHandler, crea
 import { jwtAuth } from "./middleware/jwt.middleware";
 import path from "path";
 import fs from "fs";
+import { handleStripeEvent, verifyWebhookSignature } from "./services/stripe.service";
 import { createContext } from "./trpc/context";
 import prisma from "./prismaClient";
 
@@ -24,8 +25,6 @@ const app = express();
 // security
 app.use(helmet());
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(morganMiddleware);
 app.use(apiRateLimiter);
@@ -125,6 +124,104 @@ app.post("/api/v1/auth/refresh", express.json(), async (req, res, next) => {
   }
 });
 
+// ✅ Stripe webhook (raw body, no JSON parsing)
+// This endpoint is the source of truth for payment confirmation
+// NOTE: Must stay BEFORE express.json/urlencoded registration to preserve raw body
+app.post("/api/v1/stripe/webhook", express.raw({ type: "application/json" }), async (req: any, res) => {
+  const webhookStartTime = Date.now();
+
+  try {
+    // Validate body is still a Buffer (express.json must not have run)
+    if (!Buffer.isBuffer(req.body)) {
+      console.error("❌ WEBHOOK: Invalid body type for Stripe webhook", {
+        receivedType: typeof req.body,
+        isBuffer: Buffer.isBuffer(req.body),
+        contentKeys: req.body && typeof req.body === "object" ? Object.keys(req.body) : undefined,
+      });
+      return res.status(400).json({ error: "Webhook payload must be sent as raw bytes" });
+    }
+    const rawBody = req.body as Buffer;
+
+    // ✅ STEP 1: Extract signature
+    const signature = req.headers["stripe-signature"];
+    if (!signature) {
+      console.error("❌ WEBHOOK: Missing stripe-signature header", { headers: Object.keys(req.headers) });
+      return res.status(400).json({ error: "Missing stripe signature" });
+    }
+
+    // ✅ STEP 2: Verify signature
+    let event: any;
+    try {
+      event = await verifyWebhookSignature(rawBody, signature);
+      console.log("✅ WEBHOOK: Signature verified for event", {
+        eventId: event.id,
+        eventType: event.type,
+        livemode: event.livemode,
+        timestamp: event.created,
+      });
+    } catch (err: any) {
+      const statusCode = err?.statusCode ?? 400;
+      console.error("❌ WEBHOOK: Signature verification failed:", {
+        error: err.message,
+        signaturePrefix: signature.substring(0, 20) + "...",
+        bodyLength: rawBody.length,
+        statusCode,
+      });
+      return res.status(statusCode).json({ error: err.message || "Signature verification failed" });
+    }
+
+    // ✅ STEP 3: Return 200 to acknowledge receipt immediately
+    res.status(200).json({ received: true, eventId: event.id });
+
+    // ✅ STEP 4: Process event asynchronously without blocking the response
+    handleStripeEvent(event)
+      .then(() => {
+        const duration = Date.now() - webhookStartTime;
+        console.log("✅ WEBHOOK: Event processed successfully (asynchronous)", {
+          eventId: event.id,
+          eventType: event.type,
+          stripeSessionId: event?.data?.object?.id,
+          durationMs: duration,
+          timestamp: new Date().toISOString(),
+        });
+      })
+      .catch((err: any) => {
+        const duration = Date.now() - webhookStartTime;
+        const checkoutSessionId =
+          event?.type === "checkout.session.completed" ? (event?.data as any)?.object?.id : undefined;
+
+        console.error("❌ WEBHOOK: Asynchronous event processing failed:", {
+          eventId: event.id,
+          eventType: event.type,
+          stripeSessionId: checkoutSessionId,
+          error: err.message,
+          durationMs: duration,
+          stack: err.stack?.substring(0, 500),
+        });
+        // No need to return 500 here as we've already responded to Stripe
+        // Log the error for internal monitoring
+      });
+  } catch (err: any) {
+    const duration = Date.now() - webhookStartTime;
+
+    console.error("❌ WEBHOOK: Unexpected error in webhook handler:", {
+      error: err.message,
+      durationMs: duration,
+      stack: err.stack?.substring(0, 500),
+    });
+
+    // ✅ Return 500 for unexpected errors so Stripe retries
+    return res.status(500).json({
+      error: "Internal server error",
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// JSON parsers MUST be registered after the raw webhook route so the webhook keeps its Buffer body
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 // REST JD + match endpoints
 app.post("/api/v1/jd", jwtAuth, express.json(), createJDTextHandler);
 app.post("/api/v1/jd/upload", jwtAuth, uploadJDHandler); // always rejects
@@ -146,10 +243,15 @@ const populateUserFromJWT = async (req: any, res: any, next: any) => {
     let payload: any;
     try {
       payload = jwt.verify(token, env.JWT_ACCESS_TOKEN_SECRET) as { sub: string; iat: number; exp: number };
-    } catch (err) {
-      // Token was provided but invalid - let tRPC handle this
-      // Don't reject here, just skip setting user
-      console.warn("JWT verification failed:", (err as any)?.message);
+    } catch (err: any) {
+      if (err.name === 'TokenExpiredError') {
+        console.info(`JWT Expired: ${token.substring(0, 10)}...`);
+      } else if (err.name === 'JsonWebTokenError') {
+        console.warn(`JWT Invalid: ${err.message}`);
+      } else {
+        console.error(`JWT Error: ${err.message}`);
+      }
+      // Token was provided but invalid - let tRPC handle this (it will see no user)
       return next();
     }
 

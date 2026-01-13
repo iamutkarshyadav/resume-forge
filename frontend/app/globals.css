@@ -155,4 +155,17 @@
   html {
     scroll-behavior: smooth;
   }
+  /* Global cursor-pointer for interactive elements */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a,
+  label,
+  input[type="file"],
+  select {
+    @apply cursor-pointer;
+  }
+  button:disabled,
+  [role="button"][aria-disabled="true"] {
+    @apply cursor-not-allowed;
+  }
 }

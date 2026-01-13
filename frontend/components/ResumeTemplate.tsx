@@ -72,10 +72,14 @@ export const ResumeTemplate = React.forwardRef<
       : [{ category: "Skills", items: data.skills as string[] }]
     : [];
 
-  // Filter out empty entries
-  const hasExperience = data.experience && data.experience.length > 0 && data.experience.some(e => e.company || e.role || e.title);
-  const hasProjects = data.projects && data.projects.length > 0 && data.projects.some(p => p.name);
-  const hasEducation = data.education && data.education.length > 0 && data.education.some(e => e.institution || e.degree);
+  // Filter out empty entries - defensive checks for PDF generation
+  const experienceList = Array.isArray(data.experience) ? data.experience.filter(e => e && (e.company || e.role || e.title || e.description)) : [];
+  const projectsList = Array.isArray(data.projects) ? data.projects.filter(p => p && p.name) : [];
+  const educationList = Array.isArray(data.education) ? data.education.filter(e => e && (e.institution || e.degree)) : [];
+  
+  const hasExperience = experienceList.length > 0;
+  const hasProjects = projectsList.length > 0;
+  const hasEducation = educationList.length > 0;
 
   return (
     <div
@@ -201,9 +205,11 @@ export const ResumeTemplate = React.forwardRef<
               Professional Experience
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "6pt" }}>
-              {data.experience
-                .filter(exp => exp.company || exp.role || exp.title)
-                .map((exp, idx) => (
+              {experienceList.map((exp, idx) => {
+                // Defensive check - ensure exp is defined
+                if (!exp) return null;
+                
+                return (
                   <div key={idx}>
                     {/* Company and Role Header */}
                     <div
@@ -233,23 +239,24 @@ export const ResumeTemplate = React.forwardRef<
                     </div>
 
                     {/* Bullets */}
-                    {exp.bullets && exp.bullets.length > 0 && (
+                    {Array.isArray(exp.bullets) && exp.bullets.length > 0 && (
                       <ul
                         style={{
                           margin: "2pt 0",
                           paddingLeft: "18pt",
                           fontSize: "10pt",
                           lineHeight: "1.5",
+                          listStyleType: "disc",
                         }}
                       >
-                        {exp.bullets.map((bullet, bidx) => (
+                        {exp.bullets.filter(b => b && typeof b === 'string' && b.trim()).map((bullet, bidx) => (
                           <li key={bidx} style={{ marginBottom: "2pt" }}>
-                            {bullet}
+                            {bullet.trim()}
                           </li>
                         ))}
                       </ul>
                     )}
-                    {exp.description && !exp.bullets && (
+                    {exp.description && typeof exp.description === 'string' && !(Array.isArray(exp.bullets) && exp.bullets.length > 0) && (
                       <div
                         style={{
                           fontSize: "10pt",
@@ -258,11 +265,12 @@ export const ResumeTemplate = React.forwardRef<
                           marginLeft: "12pt",
                         }}
                       >
-                        {exp.description}
+                        {exp.description.trim()}
                       </div>
                     )}
                   </div>
-                ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -283,17 +291,25 @@ export const ResumeTemplate = React.forwardRef<
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "4pt" }}>
               {skillsData
-                .filter(s => s.items && s.items.length > 0)
-                .map((skillGroup, idx) => (
-                  <div key={idx}>
-                    <span style={{ fontWeight: "bold", fontSize: "10pt" }}>
-                      {skillGroup.category}:
-                    </span>
-                    <span style={{ fontSize: "10pt", marginLeft: "4pt" }}>
-                      {skillGroup.items.join(", ")}
-                    </span>
-                  </div>
-                ))}
+                .filter(s => s && s.items && Array.isArray(s.items) && s.items.length > 0)
+                .map((skillGroup, idx) => {
+                  // Defensive check
+                  if (!skillGroup || !skillGroup.items) return null;
+                  
+                  const validItems = skillGroup.items.filter(item => item && typeof item === 'string' && item.trim());
+                  if (validItems.length === 0) return null;
+                  
+                  return (
+                    <div key={idx}>
+                      <span style={{ fontWeight: "bold", fontSize: "10pt" }}>
+                        {skillGroup.category || "Skills"}:
+                      </span>
+                      <span style={{ fontSize: "10pt", marginLeft: "4pt" }}>
+                        {validItems.join(", ")}
+                      </span>
+                    </div>
+                  );
+                })}
             </div>
           </div>
         )}
@@ -313,9 +329,11 @@ export const ResumeTemplate = React.forwardRef<
               Projects
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "6pt" }}>
-              {data.projects
-                .filter(proj => proj.name)
-                .map((proj, idx) => (
+              {projectsList.map((proj, idx) => {
+                // Defensive check
+                if (!proj || !proj.name) return null;
+                
+                return (
                   <div key={idx}>
                     {/* Project Title and Tech */}
                     <div
@@ -326,31 +344,32 @@ export const ResumeTemplate = React.forwardRef<
                       }}
                     >
                       {proj.name}
-                      {proj.tech && proj.tech.length > 0 && (
+                      {Array.isArray(proj.tech) && proj.tech.length > 0 && (
                         <span style={{ fontWeight: "normal", color: "#555", marginLeft: "4pt" }}>
-                          • {proj.tech.join(", ")}
+                          • {proj.tech.filter(t => t && typeof t === 'string').join(", ")}
                         </span>
                       )}
                     </div>
 
                     {/* Project Bullets */}
-                    {proj.bullets && proj.bullets.length > 0 && (
+                    {Array.isArray(proj.bullets) && proj.bullets.length > 0 && (
                       <ul
                         style={{
                           margin: "2pt 0",
                           paddingLeft: "18pt",
                           fontSize: "10pt",
                           lineHeight: "1.5",
+                          listStyleType: "disc",
                         }}
                       >
-                        {proj.bullets.map((bullet, bidx) => (
+                        {proj.bullets.filter(b => b && typeof b === 'string' && b.trim()).map((bullet, bidx) => (
                           <li key={bidx} style={{ marginBottom: "2pt" }}>
-                            {bullet}
+                            {bullet.trim()}
                           </li>
                         ))}
                       </ul>
                     )}
-                    {proj.description && !proj.bullets && (
+                    {proj.description && typeof proj.description === 'string' && !(Array.isArray(proj.bullets) && proj.bullets.length > 0) && (
                       <div
                         style={{
                           fontSize: "10pt",
@@ -359,11 +378,12 @@ export const ResumeTemplate = React.forwardRef<
                           marginLeft: "12pt",
                         }}
                       >
-                        {proj.description}
+                        {proj.description.trim()}
                       </div>
                     )}
                   </div>
-                ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -383,9 +403,11 @@ export const ResumeTemplate = React.forwardRef<
               Education
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "4pt" }}>
-              {data.education
-                .filter(edu => edu.institution || edu.degree)
-                .map((edu, idx) => (
+              {educationList.map((edu, idx) => {
+                // Defensive check
+                if (!edu) return null;
+                
+                return (
                   <div key={idx}>
                     <div
                       style={{
@@ -395,23 +417,26 @@ export const ResumeTemplate = React.forwardRef<
                       }}
                     >
                       <div style={{ fontWeight: "bold", fontSize: "10pt" }}>
-                        {edu.degree}
-                        {edu.field && ` in ${edu.field}`}
+                        {edu.degree || "Degree"}
+                        {edu.field && typeof edu.field === 'string' && ` in ${edu.field}`}
                       </div>
                       <div style={{ fontSize: "9pt", color: "#333" }}>
                         {normalizeDate(edu.startYear || edu.start, edu.endYear || edu.end)}
                       </div>
                     </div>
-                    <div style={{ fontSize: "10pt", color: "#555" }}>
-                      {edu.institution}
-                    </div>
-                    {edu.gpa && (
+                    {edu.institution && (
+                      <div style={{ fontSize: "10pt", color: "#555" }}>
+                        {edu.institution}
+                      </div>
+                    )}
+                    {edu.gpa && typeof edu.gpa === 'string' && (
                       <div style={{ fontSize: "9pt", color: "#666", marginTop: "1pt" }}>
                         GPA: {edu.gpa}
                       </div>
                     )}
                   </div>
-                ))}
+                );
+              })}
             </div>
           </div>
         )}

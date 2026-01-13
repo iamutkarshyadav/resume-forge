@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -9,7 +9,8 @@ import { ArrowLeft, Download, Loader2, Check, AlertCircle } from 'lucide-react'
 import { ResumeTemplate, type ResumeData } from '@/components/ResumeTemplate'
 import { useResumeGeneration } from '@/providers/resume-generation-provider'
 import { mapResumeToTemplate, getTemplateInfo } from '@/lib/template-mapper'
-import { exportResumeToPdf } from '@/lib/pdf-export'
+import { BillingModal } from '@/components/BillingModal'
+import { trpc } from '@/lib/trpc'
 import { toast } from 'sonner'
 
 export default function ResumeExportPage() {
@@ -19,6 +20,14 @@ export default function ResumeExportPage() {
   const [mounted, setMounted] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exported, setExported] = useState(false)
+  const [billingModalOpen, setBillingModalOpen] = useState(false)
+  const searchParams = useSearchParams()
+
+  // Fetch user credits and eligibility
+  const creditsQuery = trpc.billing.getUserCredits.useQuery()
+  const eligibilityQuery = trpc.pdf.checkDownloadEligibility.useQuery()
+  const generatePdfMutation = trpc.pdf.generateAndDownloadPDF.useMutation()
+  const verifyPaymentMutation = trpc.billing.verifyPayment.useMutation()
 
   React.useEffect(() => {
     setMounted(true)
@@ -30,6 +39,57 @@ export default function ResumeExportPage() {
     }
   }, [])
 
+  // Handle Payment Success Auto-Download
+  React.useEffect(() => {
+    if (!mounted || !searchParams) return
+
+    const checkPaymentAndDownload = async () => {
+      const paymentSuccess = searchParams.get('payment_success')
+      const sessionId = searchParams.get('session_id')
+
+      if (paymentSuccess === 'true' && sessionId) {
+        // Clear param immediately to prevent loop
+        const newUrl = window.location.pathname
+        window.history.replaceState({}, '', newUrl)
+
+        toast.loading('Verifying payment details...', { id: 'payment-check' })
+
+        try {
+          // Explicitly verify the session
+          const result = await verifyPaymentMutation.mutateAsync({ sessionId })
+
+          if (result.status === 'VERIFIED') {
+             toast.dismiss('payment-check')
+             toast.success('Payment confirmed! valid and secure')
+             
+             // Refresh credits data just in case
+             await creditsQuery.refetch()
+             await eligibilityQuery.refetch()
+
+             // Trigger download
+             setTimeout(() => {
+               handleDownloadPDF(true) // Force download
+             }, 500)
+          } else {
+             toast.dismiss('payment-check')
+             toast.info('Payment is processing. Please wait or refresh.')
+          }
+        } catch (error) {
+          console.error('Payment verification failed:', error)
+          toast.dismiss('payment-check')
+          toast.error('Could not verify payment automatically. Please check your credits.')
+        }
+      } else if (paymentSuccess === 'true' && !sessionId) {
+        // Fallback for missing session_id (should not happen with new backend fix)
+         const newUrl = window.location.pathname
+         window.history.replaceState({}, '', newUrl)
+         toast.error("Invalid payment URL parameters returned from processor.")
+      }
+    }
+
+    checkPaymentAndDownload()
+  }, [mounted, searchParams])
+
   if (!mounted || !generatedResumeData || !selectedTemplate) {
     return null
   }
@@ -37,9 +97,17 @@ export default function ResumeExportPage() {
   const mappedData = mapResumeToTemplate(generatedResumeData, selectedTemplate)
   const templateInfo = getTemplateInfo(selectedTemplate)
 
-  const handleDownloadPDF = async () => {
-    if (!resumeRef.current) {
-      toast.error('Resume template not found')
+  const handleDownloadPDF = async (arg?: unknown) => {
+    const force = typeof arg === 'boolean' ? arg : false
+
+    // Check if user has credits
+    if (!force && (!eligibilityQuery.data || !eligibilityQuery.data.canDownload)) {
+      setBillingModalOpen(true)
+      return
+    }
+
+    if (!generatedResumeData) {
+      toast.error('Resume data not found')
       return
     }
 
@@ -48,19 +116,55 @@ export default function ResumeExportPage() {
       const fileName = `Resume_${generatedResumeData.name.replace(/\s+/g, '_')}.pdf`
       toast.loading('Generating PDF...', { id: 'pdf-export' })
 
-      // Use the existing PDF export utility
-      await exportResumeToPdf(resumeRef.current, fileName)
+      // Call server-side PDF generation with credit deduction
+      const result = await generatePdfMutation.mutateAsync({
+        resumeData: generatedResumeData,
+        fileName: fileName,
+      })
 
-      // Dismiss loading toast and show success
+      if (result.success && result.pdfBase64) {
+        // Decode base64 to blob and download
+        const binaryString = window.atob(result.pdfBase64)
+        const bytes = new Uint8Array(binaryString.length)
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i)
+        }
+        const blob = new Blob([bytes], { type: 'application/pdf' })
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = fileName
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        window.URL.revokeObjectURL(url)
+
+        // Dismiss loading toast and show success
+        toast.dismiss('pdf-export')
+        toast.success(`${fileName} downloaded successfully`)
+        setExported(true)
+
+        // Refetch credits to update UI
+        await creditsQuery.refetch()
+        await eligibilityQuery.refetch()
+      }
+    } catch (error: any) {
+      console.error('PDF export error:', error)
       toast.dismiss('pdf-export')
-      toast.success(`${fileName} downloaded successfully`)
-      setExported(true)
-    } catch (err) {
-      console.error('PDF export error:', err)
-      toast.dismiss('pdf-export')
-      toast.error('Failed to export PDF. Please try again.')
+
+      // Safely extract error information
+      const errorCode = error?.data?.code || error?.code;
+      const errorMessage = error?.message || error?.data?.message || 'Failed to export PDF. Please try again.';
+      
+      // Check if it's a credit error
+      if (errorCode === 'PRECONDITION_FAILED' || errorMessage.toLowerCase().includes('credit')) {
+        setBillingModalOpen(true);
+        toast.error('Insufficient credits. Please purchase more credits to download PDFs.');
+      } else {
+        toast.error(errorMessage);
+      }
     } finally {
-      setExporting(false)
+      setExporting(false);
     }
   }
 
@@ -249,6 +353,15 @@ export default function ResumeExportPage() {
             Analyze Another Job
           </Button>
         </motion.div>
+
+        {/* Billing Modal */}
+        <BillingModal
+          open={billingModalOpen}
+          onOpenChange={setBillingModalOpen}
+          currentCredits={creditsQuery.data?.credits || 0}
+          creditsNeeded={1}
+          returnUrl={typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}?payment_success=true` : undefined}
+        />
       </div>
     </main>
   )

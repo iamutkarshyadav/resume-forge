@@ -42,12 +42,17 @@ exports.getMatchById = getMatchById;
 const prismaClient_1 = __importDefault(require("../prismaClient"));
 const gemini = __importStar(require("./gemini.service"));
 const httpError_1 = require("../utils/httpError");
-async function analyzeMatch(user, resumeId, jdText, jdId) {
+const jobDescription_service_1 = require("./jobDescription.service");
+const logger_1 = require("../utils/logger");
+async function analyzeMatch(user, resumeId, jdId) {
     // Validate inputs
     if (!resumeId || typeof resumeId !== "string")
         throw new httpError_1.HttpError(400, "Invalid resumeId");
-    if (!jdText || typeof jdText !== "string" || jdText.trim().length === 0)
-        throw new httpError_1.HttpError(400, "Empty job description text");
+    if (!jdId || typeof jdId !== "string")
+        throw new httpError_1.HttpError(400, "Invalid jdId");
+    // Fetch JD first, this also validates ownership
+    const jd = await (0, jobDescription_service_1.getJobDescription)(user.id, jdId);
+    const jdText = jd.fullText;
     const resume = await prismaClient_1.default.resume.findUnique({ where: { id: resumeId } });
     if (!resume)
         throw new httpError_1.HttpError(404, "Resume not found");
@@ -64,36 +69,74 @@ async function analyzeMatch(user, resumeId, jdText, jdId) {
     }
     if (!resumeText)
         throw new httpError_1.HttpError(400, "Empty resume text");
-    // Run main analysis
-    const analysis = await gemini.analyzeWithGemini({ fullText: resumeText, jsonData: resumeJson }, jdText);
-    // Calculate additional metrics
-    const completenessScore = await gemini.calculateCompletenessScore(resumeText);
-    const jdRealismScore = await gemini.calculateJDRealismScore(jdText);
-    const hasKeywordStuffing = await gemini.detectKeywordStuffing(resumeText);
-    const match = await prismaClient_1.default.matchAnalysis.create({
-        data: {
-            userId: user.id,
+    // Run main analysis with error handling
+    let analysis;
+    try {
+        analysis = await gemini.analyzeResumeAndJD({ fullText: resumeText, jsonData: resumeJson }, jdText);
+    }
+    catch (err) {
+        logger_1.logger.error("Gemini analysis failed in analyzeMatch", {
+            error: err.message,
             resumeId,
-            jdId: jdId || undefined,
-            jdText: jdText,
-            summary: typeof analysis.summary === "string" ? analysis.summary : "",
-            score: typeof analysis.score === "number" ? Math.max(0, Math.min(100, Math.round(analysis.score))) : 0,
-            strengths: Array.isArray(analysis.strengths) ? analysis.strengths : [],
-            weaknesses: Array.isArray(analysis.weaknesses) ? analysis.weaknesses : [],
-            missingSkills: Array.isArray(analysis.missingSkills) ? analysis.missingSkills : [],
-            recommendations: Array.isArray(analysis.recommendations) ? analysis.recommendations : [],
-            completenessScore,
-            jdRealismScore,
-            hasKeywordStuffing
+            jdId,
+            userId: user.id
+        });
+        throw new httpError_1.HttpError(err.status || 500, `Analysis failed: ${err.message || "Unknown error"}`);
+    }
+    // Validate analysis response
+    if (!analysis || typeof analysis !== "object") {
+        logger_1.logger.error("Invalid analysis response from Gemini", { analysis, resumeId, jdId });
+        throw new httpError_1.HttpError(500, "Received invalid analysis data. Please try again.");
+    }
+    // Create match analysis with validated data
+    let match;
+    try {
+        match = await prismaClient_1.default.matchAnalysis.create({
+            data: {
+                userId: user.id,
+                resumeId,
+                jdId: jdId,
+                jdText: jdText,
+                summary: typeof analysis.summary === "string" ? analysis.summary : "",
+                score: typeof analysis.score === "number" ? Math.max(0, Math.min(100, Math.round(analysis.score))) : 0,
+                strengths: Array.isArray(analysis.strengths) ? analysis.strengths.filter(s => s && typeof s === "string") : [],
+                weaknesses: Array.isArray(analysis.weaknesses) ? analysis.weaknesses.filter(w => w && typeof w === "string") : [],
+                missingSkills: Array.isArray(analysis.missingSkills) ? analysis.missingSkills.filter(s => s && typeof s === "string") : [],
+                recommendations: Array.isArray(analysis.recommendations) ? analysis.recommendations.filter(r => r && typeof r === "string") : [],
+                completenessScore: typeof analysis.completenessScore === "number" ? Math.max(0, Math.min(100, analysis.completenessScore)) : null,
+                jdRealismScore: typeof analysis.jdRealismScore === "number" ? Math.max(0, Math.min(100, analysis.jdRealismScore)) : null,
+                hasKeywordStuffing: typeof analysis.hasKeywordStuffing === "boolean" ? analysis.hasKeywordStuffing : false
+            }
+        });
+    }
+    catch (err) {
+        logger_1.logger.error("Failed to create match analysis", {
+            error: err.message,
+            code: err.code,
+            resumeId,
+            jdId,
+            userId: user.id
+        });
+        if (err.code === "P2002") {
+            throw new httpError_1.HttpError(409, "Analysis already exists for this resume and job description");
         }
-    });
-    return { match, analysis, generated: null };
+        throw new httpError_1.HttpError(500, `Failed to save analysis: ${err.message || "Unknown error"}`);
+    }
+    if (!match || !match.id) {
+        logger_1.logger.error("Match analysis created but missing ID", { match, resumeId, jdId });
+        throw new httpError_1.HttpError(500, "Analysis created but failed to retrieve ID. Please try again.");
+    }
+    logger_1.logger.info("Match analysis created successfully", { matchId: match.id, resumeId, jdId, score: match.score });
+    return match;
 }
-async function generateForMatch(user, resumeId, jdText) {
+async function generateForMatch(user, resumeId, jdId) {
     if (!resumeId || typeof resumeId !== "string")
         throw new httpError_1.HttpError(400, "Invalid resumeId");
-    if (!jdText || typeof jdText !== "string" || jdText.trim().length === 0)
-        throw new httpError_1.HttpError(400, "Empty job description text");
+    if (!jdId || typeof jdId !== "string")
+        throw new httpError_1.HttpError(400, "Invalid jdId");
+    // Fetch JD first, this also validates ownership
+    const jd = await (0, jobDescription_service_1.getJobDescription)(user.id, jdId);
+    const jdText = jd.fullText;
     const resume = await prismaClient_1.default.resume.findUnique({ where: { id: resumeId } });
     if (!resume)
         throw new httpError_1.HttpError(404, "Resume not found");
@@ -110,30 +153,110 @@ async function generateForMatch(user, resumeId, jdText) {
     }
     if (!resumeText)
         throw new httpError_1.HttpError(400, "Empty resume text");
-    const generated = await gemini.generateResumeWithGemini({ fullText: resumeText, jsonData: resumeJson }, jdText);
+    // Generate resume with error handling
+    let generated;
+    try {
+        generated = await gemini.generateResumeWithGemini({ fullText: resumeText, jsonData: resumeJson }, jdText);
+    }
+    catch (err) {
+        logger_1.logger.error("Gemini generation failed in generateForMatch", {
+            error: err.message,
+            resumeId,
+            jdId,
+            userId: user.id
+        });
+        throw new httpError_1.HttpError(err.status || 500, `Resume generation failed: ${err.message || "Unknown error"}`);
+    }
+    // Validate generated data
+    if (!generated || typeof generated !== "object") {
+        logger_1.logger.error("Invalid generated resume data from Gemini", { generated, resumeId, jdId });
+        throw new httpError_1.HttpError(500, "AI generated invalid resume data. Please try again.");
+    }
+    // Find existing analysis
     const existing = await prismaClient_1.default.matchAnalysis.findFirst({
-        where: { userId: user.id, resumeId },
+        where: { userId: user.id, resumeId, jdId },
         orderBy: { createdAt: "desc" }
     });
     if (!existing) {
-        throw new httpError_1.HttpError(400, "No prior analysis found for this resume. Run analyze first.");
+        logger_1.logger.warn("No prior analysis found for generation", { resumeId, jdId, userId: user.id });
+        throw new httpError_1.HttpError(400, "No prior analysis found for this resume and job description. Please run analysis first.");
     }
-    const match = await prismaClient_1.default.matchAnalysis.update({
-        where: { id: existing.id },
-        data: {
-            generatedResume: generated,
-            jdText: jdText
-        }
-    });
-    // Create a resume version from the generated resume
-    const generatedText = typeof generated?.summary === "string" ? generated.summary : JSON.stringify(generated);
+    // Update match with generated resume
+    let match;
     try {
-        const resumeVersionModule = await Promise.resolve().then(() => __importStar(require("./resumeVersion.service")));
-        await resumeVersionModule.createVersion(user.id, resumeId, generatedText, generated, "ai_generated", match.id, match.score, undefined, `Generated for JD match`);
+        match = await prismaClient_1.default.matchAnalysis.update({
+            where: { id: existing.id },
+            data: {
+                generatedResume: generated,
+                jdId: jdId, // Ensure it's set
+                jdText: jdText
+            }
+        });
     }
     catch (err) {
-        // Graceful failure - don't block if version creation fails
-        console.error("Failed to create resume version:", err);
+        logger_1.logger.error("Failed to update match with generated resume", {
+            error: err.message,
+            code: err.code,
+            matchId: existing.id,
+            resumeId,
+            jdId
+        });
+        throw new httpError_1.HttpError(500, `Failed to save generated resume: ${err.message || "Unknown error"}`);
+    }
+    if (!match || !match.id) {
+        logger_1.logger.error("Match updated but missing ID", { match, resumeId, jdId });
+        throw new httpError_1.HttpError(500, "Generated resume saved but failed to retrieve match. Please try again.");
+    }
+    // Validate generated resume data before saving
+    if (!generated || typeof generated !== "object") {
+        logger_1.logger.error("Invalid generated resume data", { generated });
+        throw new httpError_1.HttpError(500, "AI generated invalid resume data. Please try again.");
+    }
+    // Create a resume version from the generated resume
+    // Use summary if available, otherwise create a text summary from the structured data
+    let generatedText;
+    if (typeof generated?.summary === "string" && generated.summary.trim()) {
+        generatedText = generated.summary;
+    }
+    else {
+        // Create a basic text representation
+        const parts = [];
+        if (generated.name)
+            parts.push(`Name: ${generated.name}`);
+        if (generated.email)
+            parts.push(`Email: ${generated.email}`);
+        if (generated.title)
+            parts.push(`Title: ${generated.title}`);
+        if (Array.isArray(generated.skills) && generated.skills.length > 0) {
+            parts.push(`Skills: ${generated.skills.join(", ")}`);
+        }
+        generatedText = parts.length > 0 ? parts.join("\n") : "AI-generated resume";
+    }
+    try {
+        const resumeVersionModule = await Promise.resolve().then(() => __importStar(require("./resumeVersion.service")));
+        const version = await resumeVersionModule.createVersion(user.id, resumeId, generatedText, generated, "ai_generated", match.id, match.score, undefined, `Generated for JD: ${jd.title || "Job Description"}`);
+        if (!version || !version.id) {
+            throw new httpError_1.HttpError(500, "Failed to create resume version - no ID returned");
+        }
+        logger_1.logger.info("Resume version created successfully", {
+            versionId: version.id,
+            resumeId,
+            matchId: match.id
+        });
+    }
+    catch (err) {
+        logger_1.logger.error("Failed to save generated resume version", {
+            error: err.message,
+            stack: err.stack,
+            resumeId,
+            matchId: match.id
+        });
+        // CRITICAL: Do not swallow this error. The user needs to know their resume wasn't saved.
+        // Re-throw with a user-friendly message
+        if (err instanceof httpError_1.HttpError) {
+            throw err;
+        }
+        throw new httpError_1.HttpError(500, `Resume generated but failed to save version: ${err.message || "Unknown error"}. Please try again.`);
     }
     return { match, analysis: null, generated };
 }

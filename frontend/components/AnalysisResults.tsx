@@ -1,11 +1,13 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import React, { useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { FixItModal } from "@/components/FixItModal";
 import {
   Check,
   AlertCircle,
@@ -14,7 +16,9 @@ import {
   Zap,
   Download,
   ArrowRight,
+  Wand2,
 } from "lucide-react";
+import { toast } from "sonner";
 
 interface AnalysisData {
   match?: {
@@ -39,6 +43,8 @@ export function AnalysisResults({
   onAnalyzeAnother,
 }: AnalysisResultsProps) {
   const [stickyVisible, setStickyVisible] = useState(true);
+  const [fixItOpen, setFixItOpen] = useState(false);
+  const [selectedIssue, setSelectedIssue] = useState<{ issue: string; type: "missingSkill" | "weakness" } | null>(null);
 
   // Wrap handlers to avoid unnecessary re-renders
   const handleGenerate = useCallback(() => {
@@ -48,6 +54,21 @@ export function AnalysisResults({
   const handleAnalyzeAnother = useCallback(() => {
     onAnalyzeAnother();
   }, [onAnalyzeAnother]);
+
+  const handleFixItClick = (issue: string, type: "missingSkill" | "weakness") => {
+    setSelectedIssue({ issue, type });
+    setFixItOpen(true);
+  };
+
+  const handleFixItSubmit = async (response: string) => {
+    // For now, trigger resume generation with context
+    // In the future, this could be a more targeted update
+    toast.success("Fix applied! Generating improved resume...");
+    setFixItOpen(false);
+    setTimeout(() => {
+      onGenerateResume();
+    }, 500);
+  };
   const score = data.match?.score ?? 0;
   const strengths = data.match?.strengths ?? [];
   const weaknesses = data.match?.weaknesses ?? [];
@@ -381,10 +402,21 @@ export function AnalysisResults({
                   {weaknesses.slice(0, 3).map((weakness, idx) => (
                     <div
                       key={idx}
-                      className="flex items-start gap-3 p-3 rounded-lg bg-yellow-900/10 border border-yellow-700/20"
+                      className="flex items-start justify-between gap-3 p-3 rounded-lg bg-yellow-900/10 border border-yellow-700/20 group"
                     >
-                      <AlertCircle className="h-4 w-4 text-yellow-400 flex-shrink-0 mt-0.5" />
-                      <p className="text-sm text-neutral-300">{weakness}</p>
+                      <div className="flex items-start gap-3 flex-1">
+                        <AlertCircle className="h-4 w-4 text-yellow-400 flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-neutral-300">{weakness}</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleFixItClick(weakness, "weakness")}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity border border-neutral-700 text-white hover:bg-neutral-900 h-7 px-2"
+                      >
+                        <Wand2 className="h-3 w-3 mr-1" />
+                        Fix
+                      </Button>
                     </div>
                   ))}
                   {weaknesses.length > 3 && (
@@ -406,10 +438,21 @@ export function AnalysisResults({
                   {missingSkills.slice(0, 4).map((skill, idx) => (
                     <div
                       key={idx}
-                      className="flex items-start gap-3 p-3 rounded-lg bg-red-900/10 border border-red-700/20"
+                      className="flex items-start justify-between gap-3 p-3 rounded-lg bg-red-900/10 border border-red-700/20 group"
                     >
-                      <X className="h-4 w-4 text-red-400 flex-shrink-0 mt-0.5" />
-                      <p className="text-sm text-neutral-300">{skill}</p>
+                      <div className="flex items-start gap-3 flex-1">
+                        <X className="h-4 w-4 text-red-400 flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-neutral-300">{skill}</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleFixItClick(skill, "missingSkill")}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity border border-neutral-700 text-white hover:bg-neutral-900 h-7 px-2"
+                      >
+                        <Wand2 className="h-3 w-3 mr-1" />
+                        Fix
+                      </Button>
                     </div>
                   ))}
                   {missingSkills.length > 4 && (
@@ -642,6 +685,17 @@ export function AnalysisResults({
             </Button>
           </div>
         </motion.div>
+      )}
+
+      {/* Fix It Modal */}
+      {selectedIssue && (
+        <FixItModal
+          open={fixItOpen}
+          onOpenChange={setFixItOpen}
+          issue={selectedIssue.issue}
+          issueType={selectedIssue.type}
+          onSubmit={handleFixItSubmit}
+        />
       )}
     </div>
   );

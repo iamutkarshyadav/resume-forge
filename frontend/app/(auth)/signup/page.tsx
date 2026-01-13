@@ -19,6 +19,7 @@ import { trpc } from '@/lib/trpc'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { useErrorHandler } from '@/providers/error-provider'
+import { Loader2 } from 'lucide-react'
 
 const formSchema = z
     .object({
@@ -49,22 +50,32 @@ export default function SignupPage() {
 
     const signupMutation = trpc.auth.signup.useMutation({
         onSuccess: (data) => {
-            localStorage.setItem('accessToken', data.accessToken);
-            localStorage.setItem('refreshToken', data.refreshToken);
-
-            // Small delay to ensure localStorage is persisted and providers detect auth
-            setTimeout(() => {
-                toast.success('Account created successfully!');
-                router.push('/dashboard');
-            }, 100);
+            try {
+                localStorage.setItem('accessToken', data.accessToken);
+                localStorage.setItem('refreshToken', data.refreshToken);
+                setTimeout(() => {
+                    toast.success('Account created successfully!');
+                    router.push('/resumes');
+                }, 100);
+            } catch (err) {
+                showErrorFromException(err, 'Signup Failed');
+            }
         },
         onError: (error) => {
+            // Never crash - always show error via toast
             showErrorFromException(error, 'Signup Failed');
-        }
+        },
+        throwOnError: false, // Prevent mutation from throwing
     });
 
     function onSubmit(values: z.infer<typeof formSchema>) {
-        signupMutation.mutate(values);
+        if (signupMutation.isPending) return;
+        try {
+            signupMutation.mutate(values);
+        } catch (err) {
+            // Double safety - should never reach here due to throwOnError: false
+            showErrorFromException(err, 'Signup Failed');
+        }
     }
 
     return (
@@ -235,8 +246,19 @@ export default function SignupPage() {
                                     )}
                                 />
 
-                                <Button type="submit" className="w-full" disabled={signupMutation.isPending}>
-                                    {signupMutation.isPending ? 'Creating Account...' : 'Continue'}
+                                <Button 
+                                    type="submit" 
+                                    className="w-full cursor-pointer" 
+                                    disabled={signupMutation.isPending}
+                                >
+                                    {signupMutation.isPending ? (
+                                        <>
+                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                            Creating Account...
+                                        </>
+                                    ) : (
+                                        'Continue'
+                                    )}
                                 </Button>
                             </form>
                         </Form>

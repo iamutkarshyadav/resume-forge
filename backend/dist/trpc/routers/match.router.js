@@ -38,61 +38,81 @@ const trpc_1 = require("../trpc");
 const zod_1 = require("zod");
 const validate_context_1 = require("../validate-context");
 const matchService = __importStar(require("../../services/match.service"));
-const planService = __importStar(require("../../services/plan.service"));
+const rateLimitService = __importStar(require("../../services/rateLimit.service"));
 exports.matchRouter = (0, trpc_1.router)({
     analyzeResumeToJD: trpc_1.protectedProcedure
-        .input(zod_1.z.object({ resumeId: zod_1.z.string(), jdText: zod_1.z.string(), jdId: zod_1.z.string().optional() }))
+        .input(zod_1.z.object({ resumeId: zod_1.z.string(), jdId: zod_1.z.string() }))
         .mutation(async ({ input, ctx }) => {
         try {
             const user = (0, validate_context_1.validateAuthContext)(ctx);
-            // Check usage limit
-            const limitCheck = await planService.checkLimit(user.id, "analyses");
-            if (!limitCheck.allowed && limitCheck.limit !== -1) {
-                throw new trpc_1.TRPCError({
-                    code: "FORBIDDEN",
-                    message: `Analysis limit reached. You have ${limitCheck.remaining} analyses remaining this month.`
-                });
+            // Check short-term rate limit (prevents accidental infinite generation)
+            // Note: Analysis is free - no credits/plan limits required
+            try {
+                rateLimitService.checkAIRateLimit(user.id, "analyze", 5, 60000); // 5 per minute
             }
-            const res = await matchService.analyzeMatch({ id: user.id, role: user.role }, input.resumeId, input.jdText, input.jdId);
-            // Increment usage
-            await planService.incrementUsage(user.id, "analyses");
+            catch (rateLimitError) {
+                if (rateLimitError.status === 429) {
+                    throw new trpc_1.TRPCError({
+                        code: "TOO_MANY_REQUESTS",
+                        message: rateLimitError.message
+                    });
+                }
+                throw rateLimitError;
+            }
+            // No plan limit check - analysis is free for all users
+            const res = await matchService.analyzeMatch({ id: user.id, role: user.role }, input.resumeId, input.jdId);
+            // Note: Not incrementing usage since analysis is free for all users
+            // Usage metrics can still be tracked elsewhere if needed for analytics
             return res;
         }
         catch (err) {
             if (err instanceof trpc_1.TRPCError)
                 throw err;
-            console.error("Error analyzing resume to JD:", err);
+            // Log error safely
+            const errorMessage = err?.message || "Failed to analyze resume";
+            const errorStatus = err?.status || err?.code || 500;
+            console.error("Error analyzing resume to JD:", { error: errorMessage, status: errorStatus });
             throw new trpc_1.TRPCError({
-                code: "INTERNAL_SERVER_ERROR",
-                message: err.message || "Failed to analyze resume"
+                code: errorStatus === 429 ? "TOO_MANY_REQUESTS" : errorStatus === 400 ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR",
+                message: errorMessage
             });
         }
     }),
     generateResumeForJD: trpc_1.protectedProcedure
-        .input(zod_1.z.object({ resumeId: zod_1.z.string(), jdText: zod_1.z.string() }))
+        .input(zod_1.z.object({ resumeId: zod_1.z.string(), jdId: zod_1.z.string() }))
         .mutation(async ({ input, ctx }) => {
         try {
             const user = (0, validate_context_1.validateAuthContext)(ctx);
-            // Check usage limit
-            const limitCheck = await planService.checkLimit(user.id, "aiGenerations");
-            if (!limitCheck.allowed && limitCheck.limit !== -1) {
-                throw new trpc_1.TRPCError({
-                    code: "FORBIDDEN",
-                    message: `AI generation limit reached. You have ${limitCheck.remaining} generations remaining this month.`
-                });
+            // Check short-term rate limit (prevents accidental infinite generation)
+            // Note: AI generation is free - no credits/plan limits required
+            try {
+                rateLimitService.checkAIRateLimit(user.id, "generate", 3, 120000); // 3 per 2 minutes (more restrictive for generation)
             }
-            const res = await matchService.generateForMatch({ id: user.id, role: user.role }, input.resumeId, input.jdText);
-            // Increment usage
-            await planService.incrementUsage(user.id, "aiGenerations");
+            catch (rateLimitError) {
+                if (rateLimitError.status === 429) {
+                    throw new trpc_1.TRPCError({
+                        code: "TOO_MANY_REQUESTS",
+                        message: rateLimitError.message
+                    });
+                }
+                throw rateLimitError;
+            }
+            // No plan limit check - AI generation is free for all users
+            const res = await matchService.generateForMatch({ id: user.id, role: user.role }, input.resumeId, input.jdId);
+            // Note: Not incrementing usage since generation is free for all users
+            // Usage metrics can still be tracked elsewhere if needed for analytics
             return res;
         }
         catch (err) {
             if (err instanceof trpc_1.TRPCError)
                 throw err;
-            console.error("Error generating resume for JD:", err);
+            // Log error safely
+            const errorMessage = err?.message || "Failed to generate resume";
+            const errorStatus = err?.status || err?.code || 500;
+            console.error("Error generating resume for JD:", { error: errorMessage, status: errorStatus });
             throw new trpc_1.TRPCError({
-                code: "INTERNAL_SERVER_ERROR",
-                message: err.message || "Failed to generate resume"
+                code: errorStatus === 429 ? "TOO_MANY_REQUESTS" : errorStatus === 400 ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR",
+                message: errorMessage
             });
         }
     }),

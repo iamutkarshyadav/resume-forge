@@ -1,6 +1,6 @@
 import prisma from "../prismaClient";
 import { HttpError } from "../utils/httpError";
-import { getPlanLimits, PLAN_LIMITS } from "../config/plans";
+import { getPlanLimits } from "../config/plans";
 
 const CURRENT_MONTH = getCurrentMonth();
 
@@ -10,22 +10,32 @@ function getCurrentMonth(): string {
 }
 
 export async function initializePlan(userId: string) {
-  // Check if plan already exists
-  let plan = await prisma.userPlan.findUnique({ where: { userId } });
+  const freeLimits = getPlanLimits("free");
+  
+  // Use upsert to safely handle race conditions - creates if missing, updates if exists
+  const plan = await prisma.userPlan.upsert({
+    where: { userId },
+    create: {
+      userId,
+      planType: "free",
+      analysesPerMonth: freeLimits.analysesPerMonth,
+      savedJdsLimit: freeLimits.savedJdsLimit,
+      aiGenerationsPerMonth: freeLimits.aiGenerationsPerMonth,
+      exportModes: freeLimits.exportModes,
+      currentMonth: CURRENT_MONTH
+    },
+    update: {
+      // Only update currentMonth if it's different (month rollover)
+      currentMonth: CURRENT_MONTH
+    }
+  });
 
-  if (!plan) {
-    const freeLimits = getPlanLimits("free");
-    plan = await prisma.userPlan.create({
-      data: {
-        userId,
-        planType: "free",
-        analysesPerMonth: freeLimits.analysesPerMonth,
-        savedJdsLimit: freeLimits.savedJdsLimit,
-        aiGenerationsPerMonth: freeLimits.aiGenerationsPerMonth,
-        exportModes: freeLimits.exportModes,
-        currentMonth: CURRENT_MONTH
-      }
-    });
+  // Log if we're updating an existing plan (production warning)
+  if (process.env.NODE_ENV === "production") {
+    const existingPlan = await prisma.userPlan.findUnique({ where: { userId } });
+    if (existingPlan && existingPlan.currentMonth !== CURRENT_MONTH) {
+      console.warn(`[PlanService] Month rollover detected for user ${userId}: ${existingPlan.currentMonth} -> ${CURRENT_MONTH}`);
+    }
   }
 
   return plan;
@@ -44,21 +54,13 @@ export async function getPlan(userId: string) {
 export async function incrementUsage(userId: string, metric: "analyses" | "aiGenerations" | "jdsSaved") {
   const month = getCurrentMonth();
 
+  // First, try to find existing usage
   let usage = await prisma.usageMetrics.findFirst({
     where: { userId, month }
   });
 
-  if (!usage) {
-    usage = await prisma.usageMetrics.create({
-      data: {
-        userId,
-        month,
-        analysesUsed: metric === "analyses" ? 1 : 0,
-        aiGenerationsUsed: metric === "aiGenerations" ? 1 : 0,
-        jdsSaved: metric === "jdsSaved" ? 1 : 0
-      }
-    });
-  } else {
+  if (usage) {
+    // Update existing usage
     const updateData: any = {};
     if (metric === "analyses") updateData.analysesUsed = { increment: 1 };
     if (metric === "aiGenerations") updateData.aiGenerationsUsed = { increment: 1 };
@@ -68,6 +70,39 @@ export async function incrementUsage(userId: string, metric: "analyses" | "aiGen
       where: { id: usage.id },
       data: updateData
     });
+  } else {
+    // Create new usage with race condition protection
+    try {
+      usage = await prisma.usageMetrics.create({
+        data: {
+          userId,
+          month,
+          analysesUsed: metric === "analyses" ? 1 : 0,
+          aiGenerationsUsed: metric === "aiGenerations" ? 1 : 0,
+          jdsSaved: metric === "jdsSaved" ? 1 : 0
+        }
+      });
+    } catch (error: any) {
+      // Handle race condition: if another request created it, fetch and update
+      if (error.code === "P2002" || error.code === 11000) {
+        usage = await prisma.usageMetrics.findFirst({
+          where: { userId, month }
+        });
+        if (!usage) throw new HttpError(500, "Failed to create or find usage metrics");
+        
+        const updateData: any = {};
+        if (metric === "analyses") updateData.analysesUsed = { increment: 1 };
+        if (metric === "aiGenerations") updateData.aiGenerationsUsed = { increment: 1 };
+        if (metric === "jdsSaved") updateData.jdsSaved = { increment: 1 };
+
+        usage = await prisma.usageMetrics.update({
+          where: { id: usage.id },
+          data: updateData
+        });
+      } else {
+        throw error;
+      }
+    }
   }
 
   return usage;
@@ -76,20 +111,34 @@ export async function incrementUsage(userId: string, metric: "analyses" | "aiGen
 export async function getUsage(userId: string) {
   const month = getCurrentMonth();
 
+  // Try to find existing usage
   let usage = await prisma.usageMetrics.findFirst({
     where: { userId, month }
   });
 
   if (!usage) {
-    usage = await prisma.usageMetrics.create({
-      data: {
-        userId,
-        month,
-        analysesUsed: 0,
-        aiGenerationsUsed: 0,
-        jdsSaved: 0
+    // Create new usage with race condition protection
+    try {
+      usage = await prisma.usageMetrics.create({
+        data: {
+          userId,
+          month,
+          analysesUsed: 0,
+          aiGenerationsUsed: 0,
+          jdsSaved: 0
+        }
+      });
+    } catch (error: any) {
+      // Handle race condition: if another request created it, just fetch it
+      if (error.code === "P2002" || error.code === 11000) {
+        usage = await prisma.usageMetrics.findFirst({
+          where: { userId, month }
+        });
+        if (!usage) throw new HttpError(500, "Failed to create or find usage metrics");
+      } else {
+        throw error;
       }
-    });
+    }
   }
 
   return usage;

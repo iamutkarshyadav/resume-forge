@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Providers } from "./providers";
 import { Toaster } from "@/components/ui/sonner";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { RouteProgressBar } from "@/components/route-progress-bar";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -23,6 +24,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <ErrorBoundary>
           <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+            <RouteProgressBar />
             <Providers>{children}</Providers>
             <Toaster />
           </ThemeProvider>

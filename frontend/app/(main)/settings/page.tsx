@@ -19,7 +19,15 @@ export default function SettingsPage() {
   const [deleteAccountConfirmOpen, setDeleteAccountConfirmOpen] = useState(false);
 
   const userQuery = trpc.auth.me.useQuery();
+  const creditsQuery = trpc.billing.getUserCredits.useQuery(undefined, {
+    refetchInterval: 30000, // Refetch every 30s for real-time updates
+  });
+  const metricsQuery = trpc.plan.getMetrics.useQuery(undefined, {
+    refetchInterval: 30000,
+  });
   const user = userQuery.data;
+  const credits = creditsQuery.data?.credits || 0;
+  const metrics = metricsQuery.data;
 
   const fadeUp = {
     hidden: { opacity: 0, y: 8 },
@@ -63,6 +71,7 @@ export default function SettingsPage() {
             variant="ghost"
             size="sm"
             onClick={() => router.back()}
+            className="cursor-pointer"
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
@@ -75,7 +84,7 @@ export default function SettingsPage() {
           animate="visible"
           variants={fadeUp}
         >
-          <Card className="bg-neutral-950 border border-neutral-800 rounded-2xl">
+          <Card className="bg-black border border-neutral-800">
             <CardHeader>
               <CardTitle className="text-lg">Profile</CardTitle>
             </CardHeader>
@@ -117,42 +126,98 @@ export default function SettingsPage() {
           animate="visible"
           variants={fadeUp}
         >
-          <Card className="bg-neutral-950 border border-neutral-800 rounded-2xl">
+          <Card className="bg-black border border-neutral-800">
             <CardHeader>
-              <CardTitle className="text-lg">Subscription</CardTitle>
+              <CardTitle className="text-lg">Subscription & Credits</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="p-4 rounded-lg bg-neutral-900 border border-neutral-800">
                 <div className="flex items-center justify-between mb-3">
                   <div>
-                    <h3 className="text-sm font-semibold">Free Plan</h3>
+                    <h3 className="text-sm font-semibold">
+                      {metrics?.planType === "pro" ? "Pro Plan" : metrics?.planType === "enterprise" ? "Enterprise Plan" : "Free Plan"}
+                    </h3>
                     <p className="text-xs text-neutral-500 mt-1">
-                      Limited AI credits and features
+                      {metrics?.planType === "pro" || metrics?.planType === "enterprise"
+                        ? "Premium features enabled"
+                        : "Limited AI credits and features"}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-neutral-800">
-                    <span className="h-2 w-2 rounded-full bg-green-400"></span>
+                    <span className="h-2 w-2 rounded-full bg-green-400 animate-pulse"></span>
                     <span className="text-xs text-neutral-300">Active</span>
                   </div>
                 </div>
 
-                <div className="text-sm text-neutral-400 mt-3">
-                  AI Credits: <span className="font-semibold">4 / 10</span>
-                </div>
-                <div className="w-full bg-neutral-800 rounded-full h-2 mt-2">
-                  <div
-                    className="bg-white h-2 rounded-full"
-                    style={{ width: "40%" }}
-                  ></div>
+                <div className="space-y-3 mt-4">
+                  <div>
+                    <div className="flex items-center justify-between text-sm text-neutral-400 mb-1">
+                      <span>Download Credits</span>
+                      <span className="font-semibold text-white">{credits}</span>
+                    </div>
+                    {credits === 0 && (
+                      <p className="text-xs text-red-400 mt-1">⚠ No credits available</p>
+                    )}
+                  </div>
+
+                  {metrics && (
+                    <>
+                      <div>
+                        <div className="flex items-center justify-between text-sm text-neutral-400 mb-1">
+                          <span>Analyses Used</span>
+                          <span className="font-semibold text-white">
+                            {metrics.analysisUsage.used} / {metrics.analysisUsage.limit === -1 ? "Unlimited" : metrics.analysisUsage.limit}
+                          </span>
+                        </div>
+                        {metrics.analysisUsage.percentage !== null && (
+                          <div className="w-full bg-neutral-800 rounded-full h-2 mt-2">
+                            <div
+                              className={`h-2 rounded-full ${
+                                metrics.analysisUsage.percentage > 80 ? "bg-red-500" : "bg-white"
+                              }`}
+                              style={{ width: `${Math.min(100, metrics.analysisUsage.percentage)}%` }}
+                            ></div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between text-sm text-neutral-400 mb-1">
+                          <span>AI Generations Used</span>
+                          <span className="font-semibold text-white">
+                            {metrics.aiGenerationUsage.used} / {metrics.aiGenerationUsage.limit === -1 ? "Unlimited" : metrics.aiGenerationUsage.limit}
+                          </span>
+                        </div>
+                        {metrics.aiGenerationUsage.percentage !== null && (
+                          <div className="w-full bg-neutral-800 rounded-full h-2 mt-2">
+                            <div
+                              className={`h-2 rounded-full ${
+                                metrics.aiGenerationUsage.percentage > 80 ? "bg-red-500" : "bg-white"
+                              }`}
+                              style={{ width: `${Math.min(100, metrics.aiGenerationUsage.percentage)}%` }}
+                            ></div>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
               <Button
-                className="w-full bg-white text-black hover:bg-neutral-200 rounded-lg"
-                disabled
+                className="w-full bg-white text-black hover:bg-neutral-200 rounded-lg cursor-pointer"
+                onClick={() => router.push("/billing")}
               >
                 <Crown className="h-4 w-4 mr-2" />
-                Upgrade to Pro (Coming Soon)
+                {credits === 0 ? "Get Credits" : "Manage Subscription"}
+              </Button>
+
+              <Button
+                variant="outline"
+                className="w-full border-neutral-700 text-neutral-300 rounded-lg cursor-pointer"
+                onClick={() => router.push("/billing/history")}
+              >
+                View Billing History
               </Button>
             </CardContent>
           </Card>
@@ -164,7 +229,7 @@ export default function SettingsPage() {
           animate="visible"
           variants={fadeUp}
         >
-          <Card className="bg-neutral-950 border border-neutral-800 rounded-2xl">
+          <Card className="bg-black border border-neutral-800">
             <CardHeader>
               <CardTitle className="text-lg">Preferences</CardTitle>
             </CardHeader>
@@ -188,17 +253,6 @@ export default function SettingsPage() {
 
               <Separator className="bg-neutral-800" />
 
-              <div className="flex items-center justify-between p-3 rounded-lg hover:bg-neutral-900 transition-colors">
-                <div>
-                  <p className="text-sm font-medium">Dark Theme</p>
-                  <p className="text-xs text-neutral-500 mt-1">
-                    Always enabled
-                  </p>
-                </div>
-                <div className="text-xs text-green-400 font-semibold">
-                  ✓ Active
-                </div>
-              </div>
             </CardContent>
           </Card>
         </motion.section>
@@ -209,7 +263,7 @@ export default function SettingsPage() {
           animate="visible"
           variants={fadeUp}
         >
-          <Card className="bg-neutral-950 border border-neutral-800 rounded-2xl">
+          <Card className="bg-black border border-neutral-800">
             <CardHeader>
               <CardTitle className="text-lg">Account</CardTitle>
             </CardHeader>
@@ -233,7 +287,7 @@ export default function SettingsPage() {
               <Button
                 onClick={handleLogout}
                 disabled={loading}
-                className="w-full bg-white text-black hover:bg-neutral-200 rounded-lg"
+                className="w-full bg-white text-black hover:bg-neutral-200 rounded-lg cursor-pointer"
               >
                 {loading ? (
                   <>

@@ -11,6 +11,7 @@ exports.checkLimit = checkLimit;
 exports.upgradePlan = upgradePlan;
 exports.getUserMetrics = getUserMetrics;
 const prismaClient_1 = __importDefault(require("../prismaClient"));
+const httpError_1 = require("../utils/httpError");
 const plans_1 = require("../config/plans");
 const CURRENT_MONTH = getCurrentMonth();
 function getCurrentMonth() {
@@ -18,21 +19,30 @@ function getCurrentMonth() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 async function initializePlan(userId) {
-    // Check if plan already exists
-    let plan = await prismaClient_1.default.userPlan.findUnique({ where: { userId } });
-    if (!plan) {
-        const freeLimits = (0, plans_1.getPlanLimits)("free");
-        plan = await prismaClient_1.default.userPlan.create({
-            data: {
-                userId,
-                planType: "free",
-                analysesPerMonth: freeLimits.analysesPerMonth,
-                savedJdsLimit: freeLimits.savedJdsLimit,
-                aiGenerationsPerMonth: freeLimits.aiGenerationsPerMonth,
-                exportModes: freeLimits.exportModes,
-                currentMonth: CURRENT_MONTH
-            }
-        });
+    const freeLimits = (0, plans_1.getPlanLimits)("free");
+    // Use upsert to safely handle race conditions - creates if missing, updates if exists
+    const plan = await prismaClient_1.default.userPlan.upsert({
+        where: { userId },
+        create: {
+            userId,
+            planType: "free",
+            analysesPerMonth: freeLimits.analysesPerMonth,
+            savedJdsLimit: freeLimits.savedJdsLimit,
+            aiGenerationsPerMonth: freeLimits.aiGenerationsPerMonth,
+            exportModes: freeLimits.exportModes,
+            currentMonth: CURRENT_MONTH
+        },
+        update: {
+            // Only update currentMonth if it's different (month rollover)
+            currentMonth: CURRENT_MONTH
+        }
+    });
+    // Log if we're updating an existing plan (production warning)
+    if (process.env.NODE_ENV === "production") {
+        const existingPlan = await prismaClient_1.default.userPlan.findUnique({ where: { userId } });
+        if (existingPlan && existingPlan.currentMonth !== CURRENT_MONTH) {
+            console.warn(`[PlanService] Month rollover detected for user ${userId}: ${existingPlan.currentMonth} -> ${CURRENT_MONTH}`);
+        }
     }
     return plan;
 }
@@ -45,21 +55,12 @@ async function getPlan(userId) {
 }
 async function incrementUsage(userId, metric) {
     const month = getCurrentMonth();
+    // First, try to find existing usage
     let usage = await prismaClient_1.default.usageMetrics.findFirst({
         where: { userId, month }
     });
-    if (!usage) {
-        usage = await prismaClient_1.default.usageMetrics.create({
-            data: {
-                userId,
-                month,
-                analysesUsed: metric === "analyses" ? 1 : 0,
-                aiGenerationsUsed: metric === "aiGenerations" ? 1 : 0,
-                jdsSaved: metric === "jdsSaved" ? 1 : 0
-            }
-        });
-    }
-    else {
+    if (usage) {
+        // Update existing usage
         const updateData = {};
         if (metric === "analyses")
             updateData.analysesUsed = { increment: 1 };
@@ -72,23 +73,78 @@ async function incrementUsage(userId, metric) {
             data: updateData
         });
     }
+    else {
+        // Create new usage with race condition protection
+        try {
+            usage = await prismaClient_1.default.usageMetrics.create({
+                data: {
+                    userId,
+                    month,
+                    analysesUsed: metric === "analyses" ? 1 : 0,
+                    aiGenerationsUsed: metric === "aiGenerations" ? 1 : 0,
+                    jdsSaved: metric === "jdsSaved" ? 1 : 0
+                }
+            });
+        }
+        catch (error) {
+            // Handle race condition: if another request created it, fetch and update
+            if (error.code === "P2002" || error.code === 11000) {
+                usage = await prismaClient_1.default.usageMetrics.findFirst({
+                    where: { userId, month }
+                });
+                if (!usage)
+                    throw new httpError_1.HttpError(500, "Failed to create or find usage metrics");
+                const updateData = {};
+                if (metric === "analyses")
+                    updateData.analysesUsed = { increment: 1 };
+                if (metric === "aiGenerations")
+                    updateData.aiGenerationsUsed = { increment: 1 };
+                if (metric === "jdsSaved")
+                    updateData.jdsSaved = { increment: 1 };
+                usage = await prismaClient_1.default.usageMetrics.update({
+                    where: { id: usage.id },
+                    data: updateData
+                });
+            }
+            else {
+                throw error;
+            }
+        }
+    }
     return usage;
 }
 async function getUsage(userId) {
     const month = getCurrentMonth();
+    // Try to find existing usage
     let usage = await prismaClient_1.default.usageMetrics.findFirst({
         where: { userId, month }
     });
     if (!usage) {
-        usage = await prismaClient_1.default.usageMetrics.create({
-            data: {
-                userId,
-                month,
-                analysesUsed: 0,
-                aiGenerationsUsed: 0,
-                jdsSaved: 0
+        // Create new usage with race condition protection
+        try {
+            usage = await prismaClient_1.default.usageMetrics.create({
+                data: {
+                    userId,
+                    month,
+                    analysesUsed: 0,
+                    aiGenerationsUsed: 0,
+                    jdsSaved: 0
+                }
+            });
+        }
+        catch (error) {
+            // Handle race condition: if another request created it, just fetch it
+            if (error.code === "P2002" || error.code === 11000) {
+                usage = await prismaClient_1.default.usageMetrics.findFirst({
+                    where: { userId, month }
+                });
+                if (!usage)
+                    throw new httpError_1.HttpError(500, "Failed to create or find usage metrics");
             }
-        });
+            else {
+                throw error;
+            }
+        }
     }
     return usage;
 }

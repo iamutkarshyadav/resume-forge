@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { FileText, Upload, Search, Trash2, Loader2 } from "lucide-react";
+import { FileText, Upload, Trash2, Loader2 } from "lucide-react";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -20,25 +19,20 @@ type Resume = {
 export default function ResumeLibraryPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [query, setQuery] = useState("");
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [resumeToDelete, setResumeToDelete] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   const resumeQuery = trpc.resume.list.useQuery();
   const deleteFileMutation = trpc.file.deleteFile.useMutation();
 
   const resumes = resumeQuery.data || [];
 
-  const filteredResumes = resumes.filter((r: Resume) =>
-    r.filename.toLowerCase().includes(query.toLowerCase())
-  );
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleFileUpload = async (file: File) => {
+    if (uploading) return;
 
     setUploading(true);
     setError(null);
@@ -71,17 +65,56 @@ export default function ResumeLibraryPage() {
         throw new Error(message);
       }
 
-      // Refetch resumes list
       await resumeQuery.refetch();
+      toast.success("Resume uploaded successfully!");
 
-      // Reset input
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
     } catch (err: any) {
-      setError(err?.message || "Something went wrong.");
+      const errorMsg = err?.message || "Something went wrong.";
+      setError(errorMsg);
+      toast.error(errorMsg);
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleFileUpload(file);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      const validTypes = [".pdf", ".docx", ".doc", ".txt"];
+      const fileExtension = "." + file.name.split(".").pop()?.toLowerCase();
+      
+      if (!validTypes.includes(fileExtension)) {
+        toast.error("Invalid file type. Please upload PDF, DOCX, DOC, or TXT files.");
+        return;
+      }
+
+      handleFileUpload(file);
     }
   };
 
@@ -91,7 +124,7 @@ export default function ResumeLibraryPage() {
   };
 
   const handleDeleteConfirm = async () => {
-    if (!resumeToDelete) return;
+    if (!resumeToDelete || deleting) return;
 
     setDeleting(resumeToDelete);
     try {
@@ -101,176 +134,162 @@ export default function ResumeLibraryPage() {
       setDeleteConfirmOpen(false);
       setResumeToDelete(null);
     } catch (err) {
-      console.error("Delete error:", err);
       toast.error("Failed to delete resume");
     } finally {
       setDeleting(null);
     }
   };
 
-  const fadeUp = {
-    hidden: { opacity: 0, y: 8 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.32 } },
-  };
-
   return (
     <main className="min-h-screen bg-black text-white p-8">
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-4xl mx-auto space-y-8">
         {/* HEADER */}
-        <motion.header initial="hidden" animate="visible" variants={fadeUp}>
-          <h1 className="text-4xl font-semibold tracking-tight">My Resumes</h1>
-          <p className="text-neutral-500 mt-2">
-            {resumes.length} resume{resumes.length !== 1 ? "s" : ""} uploaded
+        <div>
+          <h1 className="text-4xl font-semibold tracking-tight mb-2">My Resumes</h1>
+          <p className="text-neutral-500">
+            {resumes.length > 0 
+              ? `${resumes.length} resume${resumes.length !== 1 ? "s" : ""} uploaded`
+              : "Upload your first resume to get started"}
           </p>
-        </motion.header>
+        </div>
 
-        {/* UPLOAD SECTION */}
-        <motion.section initial="hidden" animate="visible" variants={fadeUp}>
-          <Card className="bg-neutral-950 border border-neutral-800 rounded-2xl">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold">Upload a Resume</h2>
-                  <p className="text-sm text-neutral-500 mt-1">
-                    PDF, DOCX, or TXT files accepted
-                  </p>
-                </div>
-
-                <motion.label
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  htmlFor="resume-upload"
-                  className="cursor-pointer"
-                >
-                  <Button
-                    className="bg-white text-black hover:bg-neutral-200 rounded-lg"
-                    asChild
-                  >
-                    <span>
-                      <Upload className="h-4 w-4 mr-2" />
-                      Choose File
-                    </span>
-                  </Button>
-
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    id="resume-upload"
-                    className="hidden"
-                    accept=".pdf,.docx,.doc,.txt"
-                    onChange={handleFileUpload}
-                    disabled={uploading}
-                  />
-                </motion.label>
+        {/* PREMIUM MEDIUM UPLOAD CARD - ALWAYS VISIBLE */}
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+        >
+          <Card
+          className={`bg-black border transition-colors cursor-pointer ${
+            isDragging ? "border-white" : "border-neutral-800"
+          }`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onClick={() => !uploading && fileInputRef.current?.click()}
+        >
+          <CardContent className="p-12">
+            <div className="flex flex-col items-center justify-center text-center space-y-4">
+              <div className={`h-16 w-16 rounded-full border-2 flex items-center justify-center transition-colors ${
+                isDragging ? "border-white bg-neutral-900" : "border-neutral-700"
+              }`}>
+                <Upload className={`h-8 w-8 ${isDragging ? "text-white" : "text-neutral-400"}`} />
+              </div>
+              
+              <div>
+                <h2 className="text-lg font-semibold mb-1">Upload Resume</h2>
+                <p className="text-sm text-neutral-400">
+                  Drag and drop your file here, or click to browse
+                </p>
+                <p className="text-xs text-neutral-500 mt-1">
+                  PDF, DOCX, DOC, or TXT files accepted
+                </p>
               </div>
 
+              <input
+                ref={fileInputRef}
+                type="file"
+                id="resume-upload"
+                className="hidden"
+                accept=".pdf,.docx,.doc,.txt"
+                onChange={handleFileInputChange}
+                disabled={uploading}
+              />
+
               {uploading && (
-                <div className="mt-4 flex items-center gap-2 text-sm text-neutral-400">
+                <div className="flex items-center gap-2 text-sm text-neutral-400">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Uploading...
+                  <span>Uploading...</span>
                 </div>
               )}
 
               {error && (
-                <div className="mt-4 p-3 rounded-lg bg-red-900/20 border border-red-700 text-sm text-red-300">
+                <div className="mt-4 p-3 rounded border border-red-700 bg-red-900/10 text-red-300 text-sm max-w-md">
                   {error}
                 </div>
               )}
-            </CardContent>
-          </Card>
-        </motion.section>
-
-        {/* SEARCH */}
-        <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={fadeUp}
-          className="relative"
-        >
-          <Search className="absolute left-3 top-3 h-4 w-4 text-neutral-500" />
-          <Input
-            placeholder="Search resumes..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="pl-10 bg-neutral-900 border-neutral-800 text-white placeholder:text-neutral-600 rounded-lg"
-          />
+            </div>
+          </CardContent>
+        </Card>
         </motion.div>
 
         {/* RESUMES LIST */}
-        <motion.section initial="hidden" animate="visible" variants={fadeUp}>
-          {filteredResumes.length === 0 ? (
-            <Card className="bg-neutral-950 border border-neutral-800 rounded-2xl">
-              <CardContent className="p-12 text-center">
-                <FileText className="h-12 w-12 text-neutral-700 mx-auto mb-4" />
-                <p className="text-neutral-400">
-                  {resumes.length === 0
-                    ? "No resumes yet. Upload one to get started."
-                    : "No resumes match your search."}
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-2">
-              {filteredResumes.map((resume: Resume, idx: number) => (
-                <motion.div
-                  key={resume.id}
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: idx * 0.04 }}
-                >
-                  <Card className="bg-neutral-950 border border-neutral-800 hover:border-neutral-700 transition-colors rounded-lg">
-                    <CardContent className="p-4 flex items-center justify-between">
-                      <div className="flex items-center gap-4 flex-1">
-                        <div className="h-10 w-10 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center">
-                          <FileText className="h-5 w-5 text-neutral-400" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">
-                            {resume.filename}
-                          </p>
-                          <p className="text-xs text-neutral-500 mt-1">
-                            Uploaded {new Date(resume.createdAt).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
+        {resumes.length > 0 && (
+          <section className="space-y-4">
+            <div className="border-t border-neutral-800 pt-8">
+              <h2 className="text-xl font-semibold mb-4">Your Resumes</h2>
+              <div className="space-y-2">
+            {resumes.map((resume: Resume) => (
+              <Card
+                key={resume.id}
+                className="bg-black border border-neutral-800 hover:border-neutral-700 transition-colors"
+              >
+                <CardContent className="p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-4 flex-1">
+                    <div className="h-10 w-10 rounded border border-neutral-800 flex items-center justify-center">
+                      <FileText className="h-5 w-5 text-neutral-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{resume.filename}</p>
+                      <p className="text-xs text-neutral-500 mt-1">
+                        Uploaded {new Date(resume.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
 
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-neutral-400 hover:text-white"
-                          onClick={() => router.push(`/resumes/${resume.id}`)}
-                        >
-                          View
-                        </Button>
-                        <Button
-                          size="sm"
-                          className="bg-white text-black hover:bg-neutral-200 rounded-lg"
-                          onClick={() => router.push("/analyze")}
-                        >
-                          Analyze
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-neutral-500 hover:text-red-400"
-                          onClick={() => handleDeleteClick(resume.id)}
-                          disabled={deleting === resume.id}
-                        >
-                          {deleting === resume.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              ))}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-neutral-400 hover:text-white cursor-pointer border border-neutral-800"
+                      onClick={() => router.push(`/resumes/${resume.id}`)}
+                      disabled={!!deleting}
+                    >
+                      View
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="bg-white text-black hover:bg-neutral-200 cursor-pointer"
+                      onClick={() => router.push(`/analyze?resumeId=${resume.id}`)}
+                      disabled={!!deleting}
+                    >
+                      Analyze
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-neutral-500 hover:text-red-500 cursor-pointer border border-neutral-800"
+                      onClick={() => handleDeleteClick(resume.id)}
+                      disabled={deleting === resume.id || !!deleting}
+                    >
+                      {deleting === resume.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+              </div>
             </div>
-          )}
-        </motion.section>
+          </section>
+        )}
+
+        {/* EMPTY STATE - Secondary Upload Zone When No Resumes */}
+        {resumes.length === 0 && (
+          <Card className="bg-black border border-neutral-800">
+            <CardContent className="p-8">
+              <div className="flex flex-col items-center justify-center text-center space-y-3">
+                <FileText className="h-10 w-10 text-neutral-600" />
+                <p className="text-sm text-neutral-400">
+                  No resumes uploaded yet. Use the upload card above to get started.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <ConfirmationDialog

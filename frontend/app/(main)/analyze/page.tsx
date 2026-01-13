@@ -15,15 +15,14 @@ import {
 } from "@/components/ui/select";
 import {
   ArrowLeft,
-  Loader2,
   ChevronRight,
   CheckCircle2,
-  Circle,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { AnalysisResults } from "@/components/AnalysisResults";
 import { useErrorHandler } from "@/providers/error-provider";
 import { toast } from "sonner";
+import { useAnalysisState } from "@/providers/analysis-provider";
+import { AnalysisReport } from "@/components/AnalysisReport";
 
 type AnalysisResult = {
   match?: {
@@ -41,53 +40,60 @@ type AnalysisResult = {
 export default function AnalyzeForJobPage() {
   const router = useRouter();
   const { showErrorFromException } = useErrorHandler();
+  const {
+    selectedResumeId,
+    setSelectedResumeId,
+    selectedJdId,
+    setSelectedJdId,
+  } = useAnalysisState();
   const [step, setStep] = useState<"select-resume" | "choose-jd" | "results">("select-resume");
   const [jdMode, setJdMode] = useState<"paste" | "saved">("paste");
-  const [selectedResumeId, setSelectedResumeId] = useState<string>("");
   const [selectedResumeName, setSelectedResumeName] = useState<string>("");
-  const [selectedJdId, setSelectedJdId] = useState<string>("");
   const [jdText, setJdText] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
-  const [mounted, setMounted] = useState(false);
 
   const resumeQuery = trpc.resume.list.useQuery();
   const jdQuery = trpc.jobDescription.list.useQuery({ tag: null });
-  const analyzeMutation = trpc.match.analyzeResumeToJD.useMutation();
-  const generateMutation = trpc.match.generateResumeForJD.useMutation();
 
   const resumes = resumeQuery.data || [];
   const savedJds = jdQuery.data || [];
 
+  const saveJdMutation = trpc.jobDescription.save.useMutation();
+
   useEffect(() => {
-    setMounted(true);
+    if (!resumes.length) return;
+
     try {
       const params = new URLSearchParams(window.location.search);
       const resumeIdParam = params.get("resumeId");
-      const jdTextParam = params.get("jdText");
       const jdIdParam = params.get("jdId");
 
-      if (resumeIdParam) {
-        setSelectedResumeId(resumeIdParam);
-        const resumeName = resumes.find((r: any) => r.id === resumeIdParam)?.filename || "";
-        setSelectedResumeName(resumeName);
+      if (resumeIdParam && !selectedResumeId) {
+        const resume = resumes.find((r: any) => r.id === resumeIdParam);
+        if (resume) {
+          setSelectedResumeId(resumeIdParam);
+          setSelectedResumeName(resume.filename);
+          if (!jdIdParam) {
+            setStep("choose-jd");
+          }
+        } else {
+          setSelectedResumeId(resumeIdParam);
+        }
       }
-      if (jdTextParam) {
-        setJdText(decodeURIComponent(jdTextParam));
-        setJdMode("paste");
-      }
-      if (jdIdParam) {
+
+      if (jdIdParam && !selectedJdId) {
         setSelectedJdId(jdIdParam);
         setJdMode("saved");
       }
 
-      if (resumeIdParam && (jdTextParam || jdIdParam)) {
+      if ((resumeIdParam || selectedResumeId) && (jdIdParam || selectedJdId)) {
         setStep("choose-jd");
       }
     } catch (error) {
       console.error("Error reading URL params:", error);
     }
-  }, [resumes]);
+  }, [resumes, selectedResumeId, selectedJdId, setSelectedResumeId, setSelectedJdId]);
 
   const handleResumeSelect = (resumeId: string) => {
     setSelectedResumeId(resumeId);
@@ -104,57 +110,61 @@ export default function AnalyzeForJobPage() {
   };
 
   const handleAnalyze = async () => {
+    if (isAnalyzing || saveJdMutation.isPending) return;
+
     if (!selectedResumeId) {
       toast.error("Please select a resume");
       return;
     }
 
-    const textToAnalyze = jdMode === "paste" ? jdText : savedJds.find(j => j.id === selectedJdId)?.fullText;
+    let finalJdId = "";
+    setIsAnalyzing(true);
 
-    if (!textToAnalyze || !textToAnalyze.trim()) {
-      toast.error("Please provide a job description");
-      return;
-    }
-
-    setLoading(true);
     try {
-      const response = await analyzeMutation.mutateAsync({
+      if (jdMode === "paste") {
+        if (!jdText.trim()) {
+          toast.error("Please provide a job description to analyze.");
+          setIsAnalyzing(false);
+          return;
+        }
+        const savedJd = await saveJdMutation.mutateAsync({
+          title: `Pasted JD @ ${new Date().toLocaleTimeString()}`,
+          fullText: jdText,
+        });
+        finalJdId = savedJd.id;
+        setSelectedJdId(finalJdId);
+      } else {
+        if (!selectedJdId) {
+          toast.error("Please select a saved job description.");
+          setIsAnalyzing(false);
+          return;
+        }
+        finalJdId = selectedJdId;
+      }
+
+      if (!finalJdId) {
+        toast.error("Could not determine the Job Description ID. Please try again.");
+        setIsAnalyzing(false);
+        return;
+      }
+
+      const params = new URLSearchParams({
         resumeId: selectedResumeId,
-        jdText: textToAnalyze.trim(),
-        jdId: jdMode === "saved" ? selectedJdId : undefined,
+        jdId: finalJdId,
       });
 
-      setResult(response);
-      setStep("results");
-      toast.success("Analysis complete!");
+      router.push(`/analyze/loading?${params.toString()}`);
     } catch (error) {
-      console.error("Analysis error:", error);
-      showErrorFromException(error, "Analysis Failed");
-    } finally {
-      setLoading(false);
+      showErrorFromException(error, "Failed to save job description");
+      setIsAnalyzing(false);
     }
   };
 
   const handleGenerateResume = useCallback(() => {
-    if (!selectedResumeId) {
-      toast.error("Please select a resume first");
-      return;
-    }
-
-    const textToAnalyze = jdMode === "paste" ? jdText : savedJds.find(j => j.id === selectedJdId)?.fullText;
-    if (!textToAnalyze || !textToAnalyze.trim()) {
-      toast.error("Please provide a job description");
-      return;
-    }
-
-    // Navigate to the new resume generation flow
-    const params = new URLSearchParams({
-      resumeId: selectedResumeId,
-      jdText: encodeURIComponent(textToAnalyze.trim()),
-    });
-
-    router.push(`/resume/generate?${params.toString()}`);
-  }, [selectedResumeId, jdMode, jdText, selectedJdId, savedJds]);
+    // Legacy fallback - redirect to analyze page to start fresh flow
+    // The proper flow goes: analyze -> loading -> results -> resume/generate
+    router.push("/analyze");
+  }, [router]);
 
   const step1Complete = !!selectedResumeId;
   const step2Complete = step === "results";
@@ -171,15 +181,11 @@ export default function AnalyzeForJobPage() {
 
   if (step === "results" && result) {
     return (
-      <main className="min-h-screen bg-black text-white p-8">
-        <div className="max-w-4xl mx-auto">
-          <AnalysisResults
-            data={result}
-            onGenerateResume={handleGenerateResume}
-            onAnalyzeAnother={() => setStep("choose-jd")}
-          />
-        </div>
-      </main>
+      <AnalysisReport
+        data={result}
+        onGenerateResume={handleGenerateResume}
+        onAnalyzeAnother={() => setStep("choose-jd")}
+      />
     );
   }
 
@@ -350,7 +356,7 @@ export default function AnalyzeForJobPage() {
                   ) : (
                     <div className="space-y-3">
                       <Select
-                        value={selectedResumeId}
+                        value={selectedResumeId || ""}
                         onValueChange={handleResumeSelect}
                         disabled={step1Complete && step === "choose-jd"}
                       >
@@ -379,7 +385,10 @@ export default function AnalyzeForJobPage() {
 
                       {step === "choose-jd" ? (
                         <Button
-                          onClick={() => setStep("select-resume")}
+                          onClick={() => {
+                            setStep("select-resume");
+                            setSelectedResumeId(null);
+                          }}
                           variant="outline"
                           className="w-full border-neutral-700 text-neutral-300 rounded-lg"
                         >
@@ -453,7 +462,7 @@ export default function AnalyzeForJobPage() {
                         variant={jdMode === "paste" ? "default" : "outline"}
                         onClick={() => {
                           setJdMode("paste");
-                          setSelectedJdId("");
+                          setSelectedJdId(null);
                         }}
                         className="flex-1 rounded-lg"
                       >
@@ -508,8 +517,8 @@ export default function AnalyzeForJobPage() {
                               Select a saved job description
                             </label>
                             <Select
-                              value={selectedJdId}
-                              onValueChange={setSelectedJdId}
+                              value={selectedJdId || ""}
+                              onValueChange={(value) => setSelectedJdId(value)}
                             >
                               <SelectTrigger className="bg-neutral-900 border-neutral-800 text-white rounded-lg">
                                 <SelectValue placeholder="Choose a saved job description..." />
@@ -539,24 +548,16 @@ export default function AnalyzeForJobPage() {
                       <Button
                         onClick={handleAnalyze}
                         disabled={
-                          loading ||
+                          isAnalyzing ||
+                          saveJdMutation.isPending ||
                           !selectedResumeId ||
                           (jdMode === "paste" && !jdText.trim()) ||
                           (jdMode === "saved" && !selectedJdId)
                         }
                         className="flex-1 bg-white text-black hover:bg-neutral-200 rounded-lg"
                       >
-                        {loading ? (
-                          <>
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            Analyzing...
-                          </>
-                        ) : (
-                          <>
-                            Analyze Resume
-                            <ChevronRight className="h-4 w-4 ml-2" />
-                          </>
-                        )}
+                        {isAnalyzing || saveJdMutation.isPending ? "Analyzing..." : "Analyze Resume"}
+                        <ChevronRight className="h-4 w-4 ml-2" />
                       </Button>
                     </div>
                   </CardContent>

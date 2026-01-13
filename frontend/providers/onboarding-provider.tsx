@@ -62,51 +62,11 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const completeWalkthroughMutation = trpc.onboarding.complete.useMutation()
   const skipWalkthroughMutation = trpc.onboarding.skip.useMutation()
 
-  // Initialize walkthrough based on status
+  // Onboarding completely disabled - never show walkthrough
   useEffect(() => {
-    // Wait until we've checked auth status
-    if (!checkAuthComplete) {
-      return
-    }
-
-    // Don't show walkthrough if not authenticated
-    if (!hasAuth) {
-      setIsLoading(false)
-      setShowWalkthrough(false)
-      return
-    }
-
-    setIsLoading(statusLoading)
-    if (statusLoading) return
-
-    // Handle errors gracefully - don't crash on 401 or other errors
-    // Log them for debugging, but don't show walkthrough and don't propagate to ErrorBoundary
-    if (error) {
-      const errorMsg = (error as any)?.message || String(error)
-      const errorCode = (error as any)?.data?.code
-      console.warn(`[OnboardingProvider] Status fetch failed [${errorCode}]:`, errorMsg)
-      // Degrade gracefully: just don't show the walkthrough
-      setShowWalkthrough(false)
-      setIsLoading(false)
-      return
-    }
-
-    // If status is undefined/null, don't show walkthrough
-    if (!status) {
-      setShowWalkthrough(false)
-      setIsLoading(false)
-      return
-    }
-
-    // Show walkthrough only for new users who haven't skipped it
-    if (status.isNew && !status.skipped) {
-      setShowWalkthrough(true)
-      setCurrentStep(0)
-    } else {
-      setShowWalkthrough(false)
-    }
     setIsLoading(false)
-  }, [status, statusLoading, hasAuth, error, checkAuthComplete])
+    setShowWalkthrough(false)
+  }, [])
 
   const nextStep = useCallback(() => {
     if (currentStep < DEFAULT_ONBOARDING_STEPS.length - 1) {

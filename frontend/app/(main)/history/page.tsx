@@ -1,21 +1,17 @@
 "use client";
 
-"use client";
-
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, BarChart2, Clock } from "lucide-react";
-import { trpc } from "@/lib/trpc"
+import { Card, CardContent } from "@/components/ui/card";
+import { ArrowLeft, BarChart2 } from "lucide-react";
+import { trpc } from "@/lib/trpc";
 
 type Match = {
   id: string;
   resumeId?: string;
   score?: number;
   summary?: string;
-  jdText?: string;
   createdAt: string;
 };
 
@@ -24,7 +20,7 @@ export default function HistoryPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [matches, setMatches] = useState<Match[]>([]);
 
-  const recentMatchesQuery = trpc.activity.getRecentMatches.useQuery({ limit: 50 });
+  const recentMatchesQuery = trpc.activity.getRecentMatches.useQuery({ limit: 100 });
 
   useEffect(() => {
     if (recentMatchesQuery.data) {
@@ -33,46 +29,29 @@ export default function HistoryPage() {
         resumeId: m.resumeId,
         score: m.score,
         summary: m.summary || "Analysis complete",
-        jdText: "",
         createdAt: m.createdAt,
       }));
       setMatches(formattedMatches);
     }
   }, [recentMatchesQuery.data]);
 
-  function groupByDate(items: Match[]) {
+  // Group by date for timeline
+  const timeline = useMemo(() => {
     const grouped: { [key: string]: Match[] } = {};
-
-    items.forEach((item) => {
-      const date = new Date(item.createdAt);
-      const today = new Date();
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-
-      let label = "";
-      if (date.toDateString() === today.toDateString()) {
-        label = "Today";
-      } else if (date.toDateString() === yesterday.toDateString()) {
-        label = "Yesterday";
-      } else if (date.getTime() > today.getTime() - 7 * 24 * 60 * 60 * 1000) {
-        label = "This Week";
-      } else if (date.getTime() > today.getTime() - 30 * 24 * 60 * 60 * 1000) {
-        label = "This Month";
-      } else {
-        label = date.toLocaleDateString("en-US", {
-          year: "numeric",
-          month: "long",
-        });
+    matches.forEach((match) => {
+      const date = new Date(match.createdAt);
+      const dateKey = date.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+      if (!grouped[dateKey]) {
+        grouped[dateKey] = [];
       }
-
-      if (!grouped[label]) {
-        grouped[label] = [];
-      }
-      grouped[label].push(item);
+      grouped[dateKey].push(match);
     });
-
     return grouped;
-  }
+  }, [matches]);
 
   function timeAgo(iso: string) {
     const diff = Date.now() - new Date(iso).getTime();
@@ -84,88 +63,117 @@ export default function HistoryPage() {
     return `${days}d ago`;
   }
 
-  const groupedMatches = groupByDate(matches);
-  const dateGroups = Object.keys(groupedMatches);
+  const dateGroups = Object.keys(timeline).sort((a, b) => {
+    return new Date(b).getTime() - new Date(a).getTime();
+  });
 
-  const fadeUp = {
-    hidden: { opacity: 0, y: 8 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.32 } },
-  };
+  // Calculate usage stats
+  const stats = useMemo(() => {
+    const scores = matches.map((m) => m.score || 0).filter((s) => s > 0);
+    return {
+      total: matches.length,
+      average: scores.length > 0
+        ? Math.round(scores.reduce((sum, s) => sum + s, 0) / scores.length)
+        : 0,
+      best: scores.length > 0 ? Math.max(...scores) : 0,
+    };
+  }, [matches]);
 
   return (
     <main className="min-h-screen bg-black text-white p-8">
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-5xl mx-auto space-y-8">
         {/* HEADER */}
-        <motion.header
-          initial="hidden"
-          animate="visible"
-          variants={fadeUp}
-          className="flex items-center gap-4"
-        >
+        <header className="flex items-center gap-4">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => router.back()}
+            className="cursor-pointer"
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <h1 className="text-3xl font-semibold">Past Analyses</h1>
-        </motion.header>
+          <div className="flex-1">
+            <h1 className="text-4xl font-semibold tracking-tight">History</h1>
+            <p className="text-sm text-neutral-400 mt-2">
+              ATS scan history and usage timeline
+            </p>
+          </div>
+        </header>
+
+        {/* STATS */}
+        {matches.length > 0 && (
+          <div className="grid grid-cols-3 gap-4">
+            <div className="border border-neutral-800 bg-black p-4">
+              <p className="text-sm text-neutral-400 mb-1">Total Scans</p>
+              <p className="text-2xl font-bold text-white">{stats.total}</p>
+            </div>
+            <div className="border border-neutral-800 bg-black p-4">
+              <p className="text-sm text-neutral-400 mb-1">Average Score</p>
+              <p className={`text-2xl font-bold ${
+                stats.average >= 80 ? "text-green-500" :
+                stats.average >= 70 ? "text-white" :
+                "text-red-500"
+              }`}>
+                {stats.average}%
+              </p>
+            </div>
+            <div className="border border-neutral-800 bg-black p-4">
+              <p className="text-sm text-neutral-400 mb-1">Best Score</p>
+              <p className="text-2xl font-bold text-white">{stats.best}%</p>
+            </div>
+          </div>
+        )}
 
         {/* TIMELINE */}
-        <motion.section
-          initial="hidden"
-          animate="visible"
-          variants={fadeUp}
-          className="space-y-8"
-        >
+        <section className="space-y-8">
           {matches.length === 0 ? (
-            <Card className="bg-neutral-950 border border-neutral-800 rounded-2xl">
+            <Card className="bg-black border border-neutral-800">
               <CardContent className="p-12 text-center">
                 <BarChart2 className="h-12 w-12 text-neutral-700 mx-auto mb-4" />
-                <p className="text-neutral-400">
-                  No analyses yet. Start by analyzing a resume against a job
-                  description.
+                <p className="text-neutral-400 mb-4">
+                  No analyses yet. Start by analyzing a resume against a job description.
                 </p>
                 <Button
                   onClick={() => router.push("/analyze")}
-                  className="mt-4 bg-white text-black hover:bg-neutral-200 rounded-lg"
+                  className="bg-white text-black hover:bg-neutral-200 cursor-pointer"
                 >
                   Analyze Now
                 </Button>
               </CardContent>
             </Card>
           ) : (
-            dateGroups.map((dateGroup, groupIdx) => (
-              <div key={dateGroup} className="space-y-3">
-                <h3 className="text-sm font-semibold text-neutral-400 uppercase tracking-wider">
-                  {dateGroup}
-                </h3>
+            <div className="relative">
+              {/* Timeline line */}
+              <div className="absolute left-4 top-0 bottom-0 w-px bg-neutral-800" />
 
-                <div className="space-y-2">
-                  {groupedMatches[dateGroup].map((match, idx) => (
-                    <motion.div
-                      key={match.id}
-                      initial={{ opacity: 0, x: -8 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: (groupIdx * 3 + idx) * 0.04 }}
-                    >
+              {dateGroups.map((dateGroup, groupIdx) => (
+                <div key={dateGroup} className="relative mb-8">
+                  {/* Date header */}
+                  <div className="flex items-center gap-4 mb-4">
+                    <div className="h-2 w-2 rounded-full bg-white border-2 border-black relative z-10" />
+                    <h3 className="text-sm font-semibold text-neutral-400 uppercase tracking-wider">
+                      {dateGroup}
+                    </h3>
+                  </div>
+
+                  {/* Entries for this date */}
+                  <div className="ml-6 space-y-2">
+                    {timeline[dateGroup].map((match, idx) => (
                       <Card
-                        className="bg-neutral-950 border border-neutral-800 hover:border-neutral-700 transition-colors cursor-pointer rounded-lg"
+                        key={match.id}
+                        className="bg-black border border-neutral-800 hover:border-neutral-700 transition-colors cursor-pointer"
                         onClick={() =>
-                          setExpanded(
-                            expanded === match.id ? null : match.id
-                          )
+                          setExpanded(expanded === match.id ? null : match.id)
                         }
                       >
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between gap-4">
                             <div className="flex items-center gap-4 flex-1">
-                              <div className="h-10 w-10 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center flex-shrink-0">
-                                <BarChart2 className="h-5 w-5 text-neutral-400" />
+                              <div className="h-8 w-8 rounded border border-neutral-800 flex items-center justify-center flex-shrink-0">
+                                <BarChart2 className="h-4 w-4 text-neutral-400" />
                               </div>
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium truncate max-w-xs md:max-w-md lg:max-w-lg">
+                                <p className="text-sm font-medium truncate max-w-md">
                                   {match.summary}
                                 </p>
                                 <p className="text-xs text-neutral-500 mt-1">
@@ -174,64 +182,42 @@ export default function HistoryPage() {
                               </div>
                             </div>
 
-                            <div className="text-right flex-shrink-0 ml-4">
-                              <p className="text-lg font-semibold">
-                                {match.score}%
+                            <div className="text-right flex-shrink-0">
+                              <p className={`text-lg font-semibold ${
+                                (match.score || 0) >= 80 ? "text-green-500" :
+                                (match.score || 0) >= 70 ? "text-white" :
+                                "text-red-500"
+                              }`}>
+                                {match.score || 0}%
                               </p>
-                              <p className="text-xs text-neutral-500">
-                                Match Score
-                              </p>
+                              <p className="text-xs text-neutral-500">Match</p>
                             </div>
                           </div>
 
-                          {/* EXPANDED DETAILS */}
-                          {expanded === match.id && (
-                            <div className="mt-4 pt-4 border-t border-neutral-800 space-y-3">
-                              <div>
-                                <p className="text-xs text-neutral-400 mb-2">
-                                  Job Description Preview
-                                </p>
-                                <div className="max-h-24 overflow-y-auto rounded-lg bg-neutral-900/50 p-3 border border-neutral-800">
-                                  <p className="text-sm text-neutral-300 break-words">
-                                    {match.jdText?.substring(0, 300) || "No job description available"}
-                                  </p>
-                                </div>
-                              </div>
-
-                              <div className="flex gap-2 pt-2 flex-wrap">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="border-neutral-700 text-neutral-300 rounded-lg"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    router.push(`/analyze?matchId=${match.id}`);
-                                  }}
-                                >
-                                  View Details
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  className="bg-white text-black hover:bg-neutral-200 rounded-lg"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    router.push("/analyze");
-                                  }}
-                                >
-                                  Reanalyze
-                                </Button>
+                          {/* Score bar */}
+                          {match.score && (
+                            <div className="mt-3 pt-3 border-t border-neutral-800">
+                              <div className="w-full bg-neutral-900 h-1">
+                                <div
+                                  className={`h-1 ${
+                                    match.score >= 80 ? "bg-green-500" :
+                                    match.score >= 70 ? "bg-white" :
+                                    "bg-red-500"
+                                  }`}
+                                  style={{ width: `${match.score}%` }}
+                                />
                               </div>
                             </div>
                           )}
                         </CardContent>
                       </Card>
-                    </motion.div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))
+              ))}
+            </div>
           )}
-        </motion.section>
+        </section>
       </div>
     </main>
   );

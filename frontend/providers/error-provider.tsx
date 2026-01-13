@@ -41,8 +41,44 @@ export function ErrorProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const showErrorFromException = useCallback(
-    (error: any, defaultTitle = 'Something went wrong') => {
-      const parsed = parseError(error)
+    (error: any, defaultTitleOrConfig?: string | { title?: string; message?: string; retry?: () => void }) => {
+      // Handle both string title and config object for backward compatibility
+      let defaultTitle = 'Something went wrong';
+      let retryAction: (() => void) | undefined = undefined;
+      
+      if (typeof defaultTitleOrConfig === 'object' && defaultTitleOrConfig) {
+        defaultTitle = defaultTitleOrConfig.title || defaultTitle;
+        retryAction = defaultTitleOrConfig.retry;
+        if (defaultTitleOrConfig.message) {
+          // If config message is provided, use it directly
+          showError({
+            title: defaultTitle,
+            message: defaultTitleOrConfig.message,
+            type: 'error',
+            actions: retryAction ? {
+              primary: {
+                label: 'Try Again',
+                onClick: retryAction,
+              },
+            } : undefined,
+          });
+          return;
+        }
+      } else if (typeof defaultTitleOrConfig === 'string') {
+        defaultTitle = defaultTitleOrConfig;
+      }
+      
+      // Safely parse error - handle undefined/null errors
+      if (!error) {
+        showError({
+          title: defaultTitle,
+          message: 'An unknown error occurred. Please try again.',
+          type: 'error',
+        });
+        return;
+      }
+      
+      const parsed = parseError(error);
 
       let title = defaultTitle
       let message = parsed.userMessage
@@ -51,7 +87,7 @@ export function ErrorProvider({ children }: { children: ReactNode }) {
 
       // Handle specific error codes
       if (parsed.code === 'CONFLICT') {
-        title = 'Email Already Registered'
+        title = 'Email Already Exists'
         message = 'This email is already registered. Please sign in instead.'
         type = 'warning'
         actions = {
@@ -63,8 +99,14 @@ export function ErrorProvider({ children }: { children: ReactNode }) {
           },
         }
       } else if (parsed.code === 'UNAUTHORIZED') {
-        title = 'Session Expired'
-        message = 'Your session has expired. Please sign in again.'
+        // Map login-specific errors
+        if (message.toLowerCase().includes('password') || message.toLowerCase().includes('credential')) {
+          title = 'Invalid Credentials'
+          message = 'Incorrect email or password. Please try again.'
+        } else {
+          title = 'Session Expired'
+          message = 'Your session has expired. Please sign in again.'
+        }
         type = 'warning'
         actions = {
           primary: {
@@ -129,19 +171,29 @@ export function ErrorProvider({ children }: { children: ReactNode }) {
       } else if (parsed.code === 'INTERNAL_SERVER_ERROR') {
         title = 'Server Error'
         message = 'The server encountered an error. Please try again.'
-        actions = {
+        actions = retryAction ? {
+          primary: {
+            label: 'Try Again',
+            onClick: retryAction,
+          },
+        } : {
           primary: {
             label: 'Try Again',
             onClick: hideError,
           },
-        }
+        };
       }
 
       showError({
         title,
         message,
         type,
-        actions,
+        actions: actions || (retryAction ? {
+          primary: {
+            label: 'Try Again',
+            onClick: retryAction,
+          },
+        } : undefined),
       })
     },
     [showError, hideError]

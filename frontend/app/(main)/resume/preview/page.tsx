@@ -31,13 +31,27 @@ export default function ResumePreviewPage() {
     return null
   }
 
-  // Map data to selected template
-  const mappedData = mapResumeToTemplate(generatedResumeData, selectedTemplate)
-  const templateInfo = getTemplateInfo(selectedTemplate)
+  // Sanitize and map data to selected template
+  const sanitizedData = JSON.parse(JSON.stringify(generatedResumeData)); // Deep copy
 
-  const handleCompare = () => {
-    router.push('/resume/compare')
+  if (sanitizedData.experience) {
+    sanitizedData.experience.forEach((exp: any) => {
+      if (Array.isArray(exp.description)) {
+        exp.description = exp.description.join('\\n');
+      }
+    });
   }
+
+  if (sanitizedData.projects) {
+    sanitizedData.projects.forEach((proj: any) => {
+      if (Array.isArray(proj.description)) {
+        proj.description = proj.description.join('\\n');
+      }
+    });
+  }
+
+  const mappedData = mapResumeToTemplate(sanitizedData, selectedTemplate)
+  const templateInfo = getTemplateInfo(selectedTemplate)
 
   const handleDownload = () => {
     router.push('/resume/export')
@@ -79,14 +93,6 @@ export default function ResumePreviewPage() {
           </div>
 
           <div className="flex-1" />
-
-          <Button
-            onClick={handleCompare}
-            variant="outline"
-            className="border-neutral-700 text-neutral-300"
-          >
-            Compare with Original
-          </Button>
 
           <Button
             onClick={handleDownload}
@@ -137,23 +143,8 @@ export default function ResumePreviewPage() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="grid grid-cols-1 md:grid-cols-2 gap-4"
+          className="grid grid-cols-1 gap-4"
         >
-          <Card className="border-neutral-800 bg-neutral-950">
-            <CardContent className="p-6">
-              <h3 className="font-semibold mb-2">Next: Compare Changes</h3>
-              <p className="text-sm text-neutral-400 mb-4">
-                See side-by-side what changed between your original and optimized resume
-              </p>
-              <Button
-                onClick={handleCompare}
-                variant="outline"
-                className="w-full border-neutral-700 text-neutral-300"
-              >
-                View Comparison
-              </Button>
-            </CardContent>
-          </Card>
 
           <Card className="border-green-700/30 bg-green-900/10">
             <CardContent className="p-6">

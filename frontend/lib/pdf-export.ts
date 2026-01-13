@@ -32,12 +32,51 @@ export async function exportResumeToPdf(
       el.style.textAlign = computed.textAlign;
       el.style.whiteSpace = computed.whiteSpace;
 
+      // --- NEW LOGIC FOR DESCRIPTION TRANSFORMATION ---
+      // Check if this element's children appear to be description points (e.g., list items or paragraphs)
+      const children = Array.from(el.children) as HTMLElement[];
+      
+      const isLikelyDescriptionList = children.length > 0 && children.every(child =>
+        child.tagName === 'LI' && child.textContent && child.textContent.trim().length > 0
+      );
+
+      const isLikelyConsecutiveParagraphs = children.length > 0 && children.every(child =>
+        child.tagName === 'P' && child.textContent && child.textContent.trim().length > 0
+      );
+      
+      if (isLikelyDescriptionList || isLikelyConsecutiveParagraphs) {
+          // Determine the separator based on whether it's a list or paragraphs
+          const separator = isLikelyDescriptionList ? '\n• ' : '\n\n';
+          // Join the text content of children into a single string
+          const descriptionText = children.map(child => child.textContent?.trim()).filter(Boolean).join(separator);
+
+          if (descriptionText) {
+              // Set the element's text content directly. Prepend a bullet for lists.
+              el.textContent = (isLikelyDescriptionList ? '• ' : '') + descriptionText;
+              el.style.whiteSpace = 'pre-wrap'; // Ensure newlines are preserved for multi-line text
+          } else {
+              // If descriptionText is empty, clear the element's content
+              el.textContent = '';
+          }
+          
+          // Remove all original children as we've replaced the content with a text node.
+          // This prevents html2canvas from trying to render the original LI/P elements.
+          while (el.firstChild) {
+              el.removeChild(el.firstChild);
+          }
+          // Re-append the text content as a text node
+          el.appendChild(document.createTextNode(el.textContent || ''));
+          
+          return; // Stop recursion for this branch as content has been transformed.
+      }
+      // --- END NEW LOGIC ---
+
       // Remove all classes and data attributes that might cause issues
       el.removeAttribute("class");
       el.removeAttribute("data-*");
 
-      // Process children
-      Array.from(el.children).forEach((child) => {
+      // Process children (only if not transformed above)
+      children.forEach((child) => {
         processElement(child as HTMLElement);
       });
     };

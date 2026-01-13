@@ -7,9 +7,10 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ArrowLeft, Loader2, AlertCircle } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
-import { useResumeGeneration } from '@/providers/resume-generation-provider'
 import { useErrorHandler } from '@/providers/error-provider'
 import { toast } from 'sonner'
+import { useResumeGeneration } from '@/providers/resume-generation-provider'
+
 
 type ProgressStep = 'parsing' | 'matching' | 'rewriting' | 'finalizing' | 'complete' | 'error'
 
@@ -35,12 +36,8 @@ export default function ResumeGeneratePage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { showErrorFromException } = useErrorHandler()
-  const {
-    setResumeId,
-    setJdText,
-    setGeneratedResumeData,
-    generatedResumeData,
-  } = useResumeGeneration()
+  const { setGeneratedResumeData } = useResumeGeneration();
+
 
   const [currentStep, setCurrentStep] = useState<ProgressStep>('parsing')
   const [error, setError] = useState<string | null>(null)
@@ -53,16 +50,15 @@ export default function ResumeGeneratePage() {
     setMounted(true)
 
     const resumeId = searchParams.get('resumeId')
-    const jdText = searchParams.get('jdText')
+    const jdId = searchParams.get('jdId')
 
-    if (!resumeId || !jdText) {
-      setError('Missing resume ID or job description')
+    if (!resumeId || !jdId) {
+      setError('Missing resume ID or job description ID')
       setCurrentStep('error')
+      toast.error('Missing resume ID or job description ID');
+      router.push('/analyze');
       return
     }
-
-    setResumeId(resumeId)
-    setJdText(decodeURIComponent(jdText))
 
     // Trigger generation
     const triggerGeneration = async () => {
@@ -82,7 +78,7 @@ export default function ResumeGeneratePage() {
         // Call API
         const response = await generateMutation.mutateAsync({
           resumeId,
-          jdText: decodeURIComponent(jdText),
+          jdId,
         })
 
         const generatedData = (response as any)?.generated || (response as any)?.match?.generatedResume
@@ -90,10 +86,10 @@ export default function ResumeGeneratePage() {
         if (!generatedData) {
           throw new Error('No resume data returned from generation')
         }
-
-        // Store the generated data
-        setGeneratedResumeData(generatedData)
-
+        
+        // Store the generated data in the provider for the template selection page
+        setGeneratedResumeData(generatedData);
+        
         // Mark as complete
         setCurrentStep('complete')
 
@@ -109,6 +105,7 @@ export default function ResumeGeneratePage() {
     }
 
     triggerGeneration()
+     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   if (!mounted) {

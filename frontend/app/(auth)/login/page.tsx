@@ -19,6 +19,7 @@ import { trpc } from '@/lib/trpc'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { useErrorHandler } from '@/providers/error-provider'
+import { Loader2 } from 'lucide-react'
 
 const formSchema = z.object({
     email: z.string().email('Invalid email address').min(1, 'Email is required'),
@@ -38,22 +39,32 @@ export default function LoginPage() {
 
     const loginMutation = trpc.auth.login.useMutation({
         onSuccess: (data) => {
-            localStorage.setItem('accessToken', data.accessToken);
-            localStorage.setItem('refreshToken', data.refreshToken);
-
-            // Small delay to ensure localStorage is persisted and providers detect auth
-            setTimeout(() => {
-                toast.success('Logged in successfully!');
-                router.push('/dashboard');
-            }, 100);
+            try {
+                localStorage.setItem('accessToken', data.accessToken);
+                localStorage.setItem('refreshToken', data.refreshToken);
+                setTimeout(() => {
+                    toast.success('Logged in successfully!');
+                    router.push('/resumes');
+                }, 100);
+            } catch (err) {
+                showErrorFromException(err, 'Login Failed');
+            }
         },
         onError: (error) => {
+            // Never crash - always show error via toast
             showErrorFromException(error, 'Login Failed');
-        }
+        },
+        throwOnError: false, // Prevent mutation from throwing
     });
 
     function onSubmit(values: z.infer<typeof formSchema>) {
-        loginMutation.mutate(values);
+        if (loginMutation.isPending) return;
+        try {
+            loginMutation.mutate(values);
+        } catch (err) {
+            // Double safety - should never reach here due to throwOnError: false
+            showErrorFromException(err, 'Login Failed');
+        }
     }
 
     return (
@@ -116,8 +127,19 @@ export default function LoginPage() {
                                     )}
                                 />
 
-                                <Button type="submit" className="w-full" disabled={loginMutation.isPending}>
-                                    {loginMutation.isPending ? 'Signing In...' : 'Sign In'}
+                                <Button 
+                                    type="submit" 
+                                    className="w-full cursor-pointer" 
+                                    disabled={loginMutation.isPending}
+                                >
+                                    {loginMutation.isPending ? (
+                                        <>
+                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                            Signing In...
+                                        </>
+                                    ) : (
+                                        'Sign In'
+                                    )}
                                 </Button>
                             </form>
                         </Form>

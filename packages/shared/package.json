@@ -1,0 +1,25 @@
+{
+  "name": "@resume-forge/shared",
+  "version": "1.0.0",
+  "description": "Shared resume renderer and logic",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.7",
+    "@types/react": "^18",
+    "typescript": "^5.4.0"
+  },
+  "peerDependencies": {
+    "@react-pdf/renderer": "^3.4.4",
+    "react": "^18.0.0"
+  }
+}

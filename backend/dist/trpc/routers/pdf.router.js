@@ -1,12 +1,18 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pdfRouter = void 0;
 const trpc_1 = require("../trpc");
 const zod_1 = require("zod");
 const validate_context_1 = require("../validate-context");
-const pdf_service_1 = require("../../services/pdf.service");
 const logger_1 = require("../../utils/logger");
+const react_1 = __importDefault(require("react"));
+// Import from shared package
+const shared_1 = require("@resume-forge/shared");
 // Schema for resume data (matches frontend structure)
+// We keep this to validate input struct, then transform to AST
 const ResumeDataSchema = zod_1.z.object({
     name: zod_1.z.string(),
     email: zod_1.z.string().email(),
@@ -82,15 +88,23 @@ exports.pdfRouter = (0, trpc_1.router)({
                     message: "Insufficient credits. Please purchase credits to download PDF.",
                 });
             }
-            // Step 2: Generate PDF with timeout and error handling
-            logger_1.logger.info("Generating PDF", { userId: user.id, fileName });
+            // Step 2: Generate PDF using Unified Renderer (React-PDF)
+            logger_1.logger.info("Generating PDF via Unified Renderer", { userId: user.id, fileName });
             let pdfBuffer;
             try {
-                // Add timeout for PDF generation (30 seconds)
-                pdfBuffer = await Promise.race([
-                    (0, pdf_service_1.generatePDF)(resumeData, fileName),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error("PDF generation timeout after 30 seconds")), 30000))
-                ]);
+                // A. Map to AST
+                // We cast input to LegacyResumeData because Zod schema matches it structure-wise
+                const ast = (0, shared_1.mapToAST)(resumeData, shared_1.DEFAULT_TEMPLATE_RULES);
+                // B. Resolve Layout (Strict Backend Re-validation)
+                const layout = (0, shared_1.resolveLayout)(ast, shared_1.DEFAULT_TEMPLATE_RULES);
+                // C. Render to Stream
+                const stream = await (0, shared_1.renderToStream)(react_1.default.createElement(shared_1.ResumeDocument, { layout }));
+                // D. Stream to Buffer
+                const chunks = [];
+                for await (const chunk of stream) {
+                    chunks.push(chunk);
+                }
+                pdfBuffer = Buffer.concat(chunks);
             }
             catch (pdfError) {
                 logger_1.logger.error("PDF generation failed", {
@@ -107,7 +121,6 @@ exports.pdfRouter = (0, trpc_1.router)({
                 throw new Error("PDF generation resulted in empty buffer");
             }
             // Step 3: Atomically deduct credit and record transaction
-            // Use a transaction to ensure consistency
             const [updatedUser, transaction] = await Promise.all([
                 ctx.prisma.user.update({
                     where: { id: user.id },
@@ -136,7 +149,7 @@ exports.pdfRouter = (0, trpc_1.router)({
             // Step 4: Return PDF as base64 and metadata
             return {
                 success: true,
-                pdfBase64: Buffer.from(pdfBuffer).toString("base64"),
+                pdfBase64: pdfBuffer.toString("base64"),
                 fileName: fileName,
                 creditsRemaining: updatedUser.credits,
                 transactionId: transaction.id,

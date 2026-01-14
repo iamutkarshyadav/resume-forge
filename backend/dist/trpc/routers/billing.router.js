@@ -106,7 +106,7 @@ exports.billingRouter = (0, trpc_1.router)({
                     userId: user.id,
                     planId: input.planId,
                     credits: plan.credits.toString(),
-                    idempotencyKey: input.idempotencyKey, // ✅ Track frontend idempotency
+                    idempotencyKey: input.idempotencyKey ?? null, // ✅ Track frontend idempotency
                 },
             });
             console.log("✅ Checkout session created", {

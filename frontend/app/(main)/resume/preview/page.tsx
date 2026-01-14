@@ -1,19 +1,36 @@
 'use client'
 
-import React, { useRef, useState } from 'react'
+import React, { useRef, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { motion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ArrowLeft, ChevronRight, AlertCircle } from 'lucide-react'
-import { ResumeTemplate, type ResumeData } from '@/components/ResumeTemplate'
 import { useResumeGeneration } from '@/providers/resume-generation-provider'
-import { mapResumeToTemplate, getTemplateInfo } from '@/lib/template-mapper'
+// Import from shared package
+import { 
+  mapToAST, 
+  resolveLayout, 
+  DEFAULT_TEMPLATE_RULES,
+  LegacyResumeData
+} from '@resume-forge/shared'
 import { toast } from 'sonner'
+
+// Dynamically import ResumeHTML to avoid SSR issues if it uses browser-only features
+// Though it's standard HTML, we keep it dynamic for consistency with modern Next.js patterns
+const ResumeHTML = dynamic(
+  () => import('@resume-forge/shared').then((mod) => mod.ResumeHTML),
+  {
+    ssr: false,
+    loading: () => <div className="h-[800px] w-full bg-white flex items-center justify-center text-neutral-400">Loading Resume...</div>,
+  }
+)
+
+import { RESUME_STYLES } from '@resume-forge/shared';
 
 export default function ResumePreviewPage() {
   const router = useRouter()
-  const resumeRef = useRef<HTMLDivElement>(null)
   const { generatedResumeData, selectedTemplate } = useResumeGeneration()
   const [mounted, setMounted] = useState(false)
 
@@ -27,31 +44,28 @@ export default function ResumePreviewPage() {
     }
   }, [])
 
-  if (!mounted || !generatedResumeData || !selectedTemplate) {
+  // Memoize the layout resolution to avoid re-calculating on every render
+  const { layout, meta } = useMemo(() => {
+    if (!generatedResumeData) return { layout: null, meta: null }
+    
+    // Convert legacy data to AST
+    const dataForAST = {
+      ...generatedResumeData,
+      experience: Array.isArray(generatedResumeData.experience) ? generatedResumeData.experience : [],
+      projects: Array.isArray(generatedResumeData.projects) ? generatedResumeData.projects : [],
+      skills: generatedResumeData.skills || [],
+      education: Array.isArray(generatedResumeData.education) ? generatedResumeData.education : []
+    };
+
+    const ast = mapToAST(dataForAST as unknown as LegacyResumeData, DEFAULT_TEMPLATE_RULES)
+    const resolved = resolveLayout(ast, DEFAULT_TEMPLATE_RULES)
+    
+    return { layout: resolved, meta: resolved.meta }
+  }, [generatedResumeData])
+
+  if (!mounted || !generatedResumeData || !selectedTemplate || !layout) {
     return null
   }
-
-  // Sanitize and map data to selected template
-  const sanitizedData = JSON.parse(JSON.stringify(generatedResumeData)); // Deep copy
-
-  if (sanitizedData.experience) {
-    sanitizedData.experience.forEach((exp: any) => {
-      if (Array.isArray(exp.description)) {
-        exp.description = exp.description.join('\\n');
-      }
-    });
-  }
-
-  if (sanitizedData.projects) {
-    sanitizedData.projects.forEach((proj: any) => {
-      if (Array.isArray(proj.description)) {
-        proj.description = proj.description.join('\\n');
-      }
-    });
-  }
-
-  const mappedData = mapResumeToTemplate(sanitizedData, selectedTemplate)
-  const templateInfo = getTemplateInfo(selectedTemplate)
 
   const handleDownload = () => {
     router.push('/resume/export')
@@ -59,9 +73,13 @@ export default function ResumePreviewPage() {
 
   return (
     <main className="min-h-screen bg-black text-white p-8">
+      {/* Inject Resume Styles */}
+      <style dangerouslySetInnerHTML={{ __html: RESUME_STYLES }} />
+
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <motion.div
+// ... rest of the file ...
           initial={{ opacity: 0, y: -12 }}
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
@@ -89,8 +107,15 @@ export default function ResumePreviewPage() {
           className="flex flex-wrap gap-4 mb-8"
         >
           <div className="px-3 py-1.5 rounded-full bg-blue-900/30 border border-blue-700/50 text-sm text-blue-300">
-            {templateInfo.name} Template Selected
+             Magna-HTML-Renderer Active
           </div>
+          
+          {meta && meta.droppedEntries > 0 ? (
+             <div className="px-3 py-1.5 rounded-full bg-yellow-900/30 border border-yellow-700/50 text-sm text-yellow-300 flex gap-2 items-center">
+                 <AlertCircle className="w-4 h-4" />
+                 {meta.droppedEntries} items hidden to fit page
+             </div>
+          ) : null}
 
           <div className="flex-1" />
 
@@ -113,27 +138,28 @@ export default function ResumePreviewPage() {
           {/* Template Badge */}
           <div className="mb-6 flex items-center gap-2">
             <div className="px-3 py-1 rounded-full bg-blue-900/30 border border-blue-700/50 text-sm text-blue-300">
-              {templateInfo.name}
+              FAANG Path
             </div>
             <div className="text-xs text-neutral-500">Professional & ATS-Optimized</div>
           </div>
 
           {/* Resume Preview Area */}
           <div
-            className="overflow-auto bg-white rounded-lg p-0"
+            className="overflow-auto bg-white rounded-lg p-0 flex justify-center custom-scrollbar"
             style={{
-              maxHeight: '800px',
-              border: '1px solid #e5e7eb',
+              height: '850px', // Fixed height container for scrollable preview
+              border: '1px solid #333',
             }}
           >
-            <ResumeTemplate ref={resumeRef} data={mappedData} templateName="faang-path" />
+            <div className="w-full h-full origin-top scale-[0.85] lg:scale-100 transition-transform">
+               <ResumeHTML layout={layout} />
+            </div>
           </div>
 
           {/* Info Box */}
           <div className="mt-6 p-4 rounded-lg bg-neutral-900 border border-neutral-800 text-sm text-neutral-400">
             <p>
-              ✓ This template is optimized for ATS systems. Your content has been automatically
-              mapped and formatted for maximum readability by both humans and automated scanners.
+              ✓ What You See Is What You Get. This preview uses the exact same rendering engine as the PDF export.
             </p>
           </div>
         </motion.div>

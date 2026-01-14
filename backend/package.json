@@ -16,7 +16,11 @@
   "license": "MIT",
   "dependencies": {
     "@prisma/client": "^5.0.0",
+    "@react-pdf/renderer": "^4.3.2",
+    "@resume-forge/shared": "file:../packages/shared",
     "@trpc/server": "^11.7.1",
+    "@types/react": "^18",
+    "@types/react-dom": "^18.2.0",
     "bcryptjs": "^2.4.3",
     "canvas": "^2.11.2",
     "cookie-parser": "^1.4.6",
@@ -37,6 +41,8 @@
     "pdf2json": "^1.1.0",
     "pdfjs-dist": "^4.6.82",
     "puppeteer": "^24.34.0",
+    "react": "18.2.0",
+    "react-dom": "^18.2.0",
     "stripe": "^15.0.0",
     "tesseract.js": "^5.0.5",
     "zod": "^3.22.2"

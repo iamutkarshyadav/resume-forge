@@ -18,7 +18,7 @@ import { ResumeTemplate, type ResumeData } from "@/components/ResumeTemplate";
 import { toast } from "sonner";
 import { useErrorHandler } from "@/providers/error-provider";
 import { trpc } from "@/lib/trpc";
-import { trpc } from "@/lib/trpc";
+
 
 // Normalize field names for generated resumes with defensive checks
 const normalizeResumeData = (data: any): ResumeData => {

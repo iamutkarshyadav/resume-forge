@@ -1,10 +1,22 @@
 import { router, protectedProcedure, TRPCError } from "../trpc";
 import { z } from "zod";
 import { validateAuthContext } from "../validate-context";
-import { generatePDF } from "../../services/pdf.service";
 import { logger } from "../../utils/logger";
+import React from "react";
+// Import from shared package
+import { 
+  ResumeHTML, 
+  mapToAST, 
+  resolveLayout, 
+  DEFAULT_TEMPLATE_RULES,
+  LegacyResumeData,
+  RESUME_STYLES
+} from "@resume-forge/shared";
+import ReactDOMServer from "react-dom/server";
+import puppeteer from "puppeteer";
 
 // Schema for resume data (matches frontend structure)
+// We keep this to validate input struct, then transform to AST
 const ResumeDataSchema = z.object({
   name: z.string(),
   email: z.string().email(),
@@ -94,18 +106,52 @@ export const pdfRouter = router({
           });
         }
 
-        // Step 2: Generate PDF with timeout and error handling
-        logger.info("Generating PDF", { userId: user.id, fileName });
+        // Step 2: Generate PDF using Puppeteer
+        logger.info("Generating PDF via Puppeteer", { userId: user.id, fileName });
         
         let pdfBuffer: Buffer;
         try {
-          // Add timeout for PDF generation (30 seconds)
-          pdfBuffer = await Promise.race([
-            generatePDF(resumeData, fileName),
-            new Promise<Buffer>((_, reject) =>
-              setTimeout(() => reject(new Error("PDF generation timeout after 30 seconds")), 30000)
-            )
-          ]);
+          // A. Map to AST
+          const ast = mapToAST(resumeData as unknown as LegacyResumeData, DEFAULT_TEMPLATE_RULES);
+          
+          // B. Resolve Layout (Strict Backend Re-validation)
+          const layout = resolveLayout(ast, DEFAULT_TEMPLATE_RULES);
+          
+          // C. Render HTML to String
+          const htmlContent = ReactDOMServer.renderToString(
+            React.createElement(ResumeHTML, { layout })
+          );
+
+          // D. Construct full HTML document with styles
+          const fullHtml = `
+            <!DOCTYPE html>
+            <html>
+              <head>
+                <style>${RESUME_STYLES}</style>
+              </head>
+              <body>
+                ${htmlContent}
+              </body>
+            </html>
+          `;
+
+          // E. Generate PDF using Puppeteer
+          const browser = await puppeteer.launch({
+            headless: true,
+            args: ["--no-sandbox", "--disable-setuid-sandbox"],
+          });
+          const page = await browser.newPage();
+          
+          await page.setContent(fullHtml, { waitUntil: "networkidle0" });
+          
+          pdfBuffer = Buffer.from(await page.pdf({
+            format: "letter",
+            printBackground: true,
+            margin: { top: "0px", right: "0px", bottom: "0px", left: "0px" },
+          }));
+
+          await browser.close();
+          
         } catch (pdfError: any) {
           logger.error("PDF generation failed", { 
             userId: user.id, 
@@ -123,7 +169,6 @@ export const pdfRouter = router({
         }
 
         // Step 3: Atomically deduct credit and record transaction
-        // Use a transaction to ensure consistency
         const [updatedUser, transaction] = await Promise.all([
           ctx.prisma.user.update({
             where: { id: user.id },
@@ -154,7 +199,7 @@ export const pdfRouter = router({
         // Step 4: Return PDF as base64 and metadata
         return {
           success: true,
-          pdfBase64: Buffer.from(pdfBuffer).toString("base64"),
+          pdfBase64: pdfBuffer.toString("base64"),
           fileName: fileName,
           creditsRemaining: updatedUser.credits,
           transactionId: transaction.id,

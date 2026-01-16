@@ -1,6 +1,6 @@
 import { z } from "zod";
 import dotenv from "dotenv";
-dotenv.config();
+dotenv.config({ debug: true });
 
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -39,10 +39,11 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.string().transform((v) => parseInt(v, 10)).default("60000"),
   RATE_LIMIT_MAX: z.string().transform((v) => parseInt(v, 10)).default("100"),
   GEMINI_API_KEY: z.string().optional(),
-  GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
+  GEMINI_MODEL: z.string().default("gemini-1.5-flash"),
   STRIPE_SECRET_KEY: z.string().min(1, "STRIPE_SECRET_KEY is required for billing"),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
-  STRIPE_TEST_WEBHOOK_SECRET: z.string().optional()
+  STRIPE_TEST_WEBHOOK_SECRET: z.string().optional(),
+  REDIS_URL: z.string().min(1, "REDIS_URL is required")
 });
 
 try {

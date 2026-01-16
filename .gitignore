@@ -1,3 +1,31 @@
-node_modules
-
+node_modules/
 .config/
+
+# Build and IDE
+.vscode/
+.next/
+dist/
+build/
+*.tsbuildinfo
+
+# Sensitive Data
+.env*
+!.env.example
+
+# Project specific
+backend/uploads/
+backend/logs/
+packages/**/uploads/
+packages/**/logs/
+
+# Temporary files and dumps
+*.pdf
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.DS_Store
+debug/
+dumps/
+temp/

@@ -1,19 +1,17 @@
 import { router, protectedProcedure, TRPCError } from "../trpc";
 import { z } from "zod";
+import { createHash } from "crypto";
 import { validateAuthContext } from "../validate-context";
 import { logger } from "../../utils/logger";
-import React from "react";
-// Import from shared package
+import * as jobService from "../../services/job.service";
 import { 
-  ResumeHTML, 
   mapToAST, 
   resolveLayout, 
   DEFAULT_TEMPLATE_RULES,
-  LegacyResumeData,
-  RESUME_STYLES
+  LegacyResumeData
 } from "@resume-forge/shared";
-import ReactDOMServer from "react-dom/server";
-import puppeteer from "puppeteer";
+// HTML rendering removed in Phase 1 overhaul
+// Puppeteer removed in Phase 1 overhaul
 
 // Schema for resume data (matches frontend structure)
 // We keep this to validate input struct, then transform to AST
@@ -106,103 +104,22 @@ export const pdfRouter = router({
           });
         }
 
-        // Step 2: Generate PDF using Puppeteer
-        logger.info("Generating PDF via Puppeteer", { userId: user.id, fileName });
-        
-        let pdfBuffer: Buffer;
-        try {
-          // A. Map to AST
-          const ast = mapToAST(resumeData as unknown as LegacyResumeData, DEFAULT_TEMPLATE_RULES);
-          
-          // B. Resolve Layout (Strict Backend Re-validation)
-          const layout = resolveLayout(ast, DEFAULT_TEMPLATE_RULES);
-          
-          // C. Render HTML to String
-          const htmlContent = ReactDOMServer.renderToString(
-            React.createElement(ResumeHTML, { layout })
-          );
+// Step 2: Create Job
+        const hash = createHash("md5")
+          .update(user.id + JSON.stringify(resumeData))
+          .digest("hex");
+        const idempotencyKey = `pdf_${hash}`;
 
-          // D. Construct full HTML document with styles
-          const fullHtml = `
-            <!DOCTYPE html>
-            <html>
-              <head>
-                <style>${RESUME_STYLES}</style>
-              </head>
-              <body>
-                ${htmlContent}
-              </body>
-            </html>
-          `;
+        const job = await jobService.createJob(user.id, "generate_pdf", {
+          resumeData,
+          fileName
+        }, idempotencyKey);
 
-          // E. Generate PDF using Puppeteer
-          const browser = await puppeteer.launch({
-            headless: true,
-            args: ["--no-sandbox", "--disable-setuid-sandbox"],
-          });
-          const page = await browser.newPage();
-          
-          await page.setContent(fullHtml, { waitUntil: "networkidle0" });
-          
-          pdfBuffer = Buffer.from(await page.pdf({
-            format: "letter",
-            printBackground: true,
-            margin: { top: "0px", right: "0px", bottom: "0px", left: "0px" },
-          }));
+        logger.info("PDF Generation Job created", { userId: user.id, jobId: job.id });
 
-          await browser.close();
-          
-        } catch (pdfError: any) {
-          logger.error("PDF generation failed", { 
-            userId: user.id, 
-            fileName,
-            error: pdfError.message 
-          });
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: pdfError.message || "Failed to generate PDF. Please try again."
-          });
-        }
-
-        if (!pdfBuffer || pdfBuffer.length === 0) {
-          throw new Error("PDF generation resulted in empty buffer");
-        }
-
-        // Step 3: Atomically deduct credit and record transaction
-        const [updatedUser, transaction] = await Promise.all([
-          ctx.prisma.user.update({
-            where: { id: user.id },
-            data: { credits: userData.credits - 1 },
-            select: { credits: true },
-          }),
-          ctx.prisma.billingTransaction.create({
-            data: {
-              userId: user.id,
-              type: "deduction",
-              amount: -1,
-              reason: "pdf_download",
-              metadata: {
-                fileName,
-                timestamp: new Date().toISOString(),
-              },
-            },
-          }),
-        ]);
-
-        logger.info("Credit deducted for PDF download", {
-          userId: user.id,
-          fileName,
-          creditsRemaining: updatedUser.credits,
-          transactionId: transaction.id
-        });
-
-        // Step 4: Return PDF as base64 and metadata
         return {
           success: true,
-          pdfBase64: pdfBuffer.toString("base64"),
-          fileName: fileName,
-          creditsRemaining: updatedUser.credits,
-          transactionId: transaction.id,
+          jobId: job.id
         };
       } catch (error: any) {
         // Log the error for debugging
@@ -227,31 +144,16 @@ export const pdfRouter = router({
       }
     }),
 
-  // Check if user can download PDF (has sufficient credits)
   checkDownloadEligibility: protectedProcedure.query(async ({ ctx }) => {
-    try {
-      const user = validateAuthContext(ctx);
+    const user = validateAuthContext(ctx);
+    const userData = await ctx.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { credits: true },
+    });
 
-      const userData = await ctx.prisma.user.findUnique({
-        where: { id: user.id },
-        select: { credits: true },
-      });
-
-      return {
-        canDownload: (userData?.credits || 0) >= 1,
-        credits: userData?.credits || 0,
-        creditsNeeded: 1,
-      };
-      } catch (error: any) {
-        if (error instanceof TRPCError) throw error;
-        logger.error("Error checking download eligibility", { 
-          error: error?.message,
-          code: error?.code 
-        });
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to check eligibility",
-        });
-      }
+    return {
+      canDownload: (userData?.credits ?? 0) > 0,
+      credits: userData?.credits ?? 0,
+    };
   }),
 });

@@ -12,6 +12,7 @@ import { mapResumeToTemplate, getTemplateInfo } from '@/lib/template-mapper'
 import { BillingModal } from '@/components/BillingModal'
 import { trpc } from '@/lib/trpc'
 import { toast } from 'sonner'
+import { normalizeResumeData } from '@/lib/resume-utils'
 
 export default function ResumeExportPage() {
   const router = useRouter()
@@ -22,6 +23,7 @@ export default function ResumeExportPage() {
   const [exported, setExported] = useState(false)
   const [billingModalOpen, setBillingModalOpen] = useState(false)
   const searchParams = useSearchParams()
+  const ctx = (trpc as any).useUtils()
 
   // Fetch user credits and eligibility
   const creditsQuery = trpc.billing.getUserCredits.useQuery()
@@ -94,7 +96,8 @@ export default function ResumeExportPage() {
     return null
   }
 
-  const mappedData = mapResumeToTemplate(generatedResumeData, selectedTemplate)
+  const normalizedData = normalizeResumeData(generatedResumeData)
+  const mappedData = mapResumeToTemplate(normalizedData, selectedTemplate)
   const templateInfo = getTemplateInfo(selectedTemplate)
 
   const handleDownloadPDF = async (arg?: unknown) => {
@@ -116,15 +119,40 @@ export default function ResumeExportPage() {
       const fileName = `Resume_${generatedResumeData.name.replace(/\s+/g, '_')}.pdf`
       toast.loading('Generating PDF...', { id: 'pdf-export' })
 
-      // Call server-side PDF generation with credit deduction
+      // 1. Trigger Job
       const result = await generatePdfMutation.mutateAsync({
         resumeData: generatedResumeData,
         fileName: fileName,
       })
 
-      if (result.success && result.pdfBase64) {
+      if (!result.jobId) throw new Error("Failed to start PDF generation job");
+
+    // 2. Poll for Status
+      let job: any;
+      const pollInterval = 1000;
+      const maxAttempts = 30; // 30s timeout
+      
+      for (let i = 0; i < maxAttempts; i++) {
+        job = await ctx.job.getJobStatus.fetch({ jobId: result.jobId });
+        
+        if (job.status === "completed") break;
+        if (job.status === "failed") {
+          throw new Error(job.error || "PDF generation job failed");
+        }
+        
+        // Wait before next poll
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+      }
+
+      if (!job || job.status !== "completed") {
+        throw new Error("Job timed out. Please try again.");
+      }
+
+      const pdfBase64 = job.result?.pdfBase64;
+
+      if (pdfBase64) {
         // Decode base64 to blob and download
-        const binaryString = window.atob(result.pdfBase64)
+        const binaryString = window.atob(pdfBase64)
         const bytes = new Uint8Array(binaryString.length)
         for (let i = 0; i < binaryString.length; i++) {
           bytes[i] = binaryString.charCodeAt(i)

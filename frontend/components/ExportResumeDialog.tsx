@@ -29,6 +29,7 @@ type ExportFormat = {
   recommended?: boolean;
   note?: string;
   atsScore?: number;
+  disabled?: boolean;
 };
 
 export function ExportResumeDialog({
@@ -56,7 +57,8 @@ export function ExportResumeDialog({
       description: "Microsoft Word format",
       icon: <FileText className="h-5 w-5" />,
       atsScore: 90,
-      note: "ATS Friendly (90%)",
+      note: "Coming Soon",
+      disabled: true,
     },
     {
       id: "ats-plain",
@@ -64,14 +66,16 @@ export function ExportResumeDialog({
       description: "Plain text, ATS system optimized",
       icon: <Code className="h-5 w-4" />,
       atsScore: 95,
-      note: "Maximum ATS Compatibility (95%)",
+      note: "Coming Soon",
+      disabled: true,
     },
     {
       id: "recruiter-friendly",
       label: "Recruiter-Friendly",
       description: "Formatted for human review",
       icon: <FileText className="h-5 w-5" />,
-      note: "Enhanced Formatting",
+      note: "Coming Soon",
+      disabled: true,
     },
   ];
 
@@ -120,8 +124,12 @@ export function ExportResumeDialog({
             {formats.map((format) => (
               <Card
                 key={format.id}
-                className="bg-neutral-900 border border-neutral-800 hover:border-neutral-700 transition-colors cursor-pointer"
-                onClick={() => handleExport(format.id)}
+                className={`bg-neutral-900 border border-neutral-800 transition-colors ${
+                  format.disabled 
+                    ? "opacity-50 cursor-not-allowed" 
+                    : "hover:border-neutral-700 cursor-pointer"
+                }`}
+                onClick={() => !format.disabled && handleExport(format.id)}
               >
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3 mb-3">
@@ -132,7 +140,7 @@ export function ExportResumeDialog({
                         {format.description}
                       </p>
                     </div>
-                    {format.recommended && (
+                    {format.recommended && !format.disabled && (
                       <Badge className="bg-green-900 text-green-300 text-xs">
                         Recommended
                       </Badge>
@@ -146,15 +154,15 @@ export function ExportResumeDialog({
                   )}
 
                   <Button
-                    disabled={exporting}
+                    disabled={exporting || format.disabled}
                     className="w-full mt-3 bg-white text-black hover:bg-neutral-200 text-sm rounded-lg"
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleExport(format.id);
+                      if (!format.disabled) handleExport(format.id);
                     }}
                   >
                     <Download className="h-3 w-3 mr-1" />
-                    Download
+                    {format.disabled ? "Coming Soon" : "Download"}
                   </Button>
                 </CardContent>
               </Card>

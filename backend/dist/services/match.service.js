@@ -37,7 +37,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.analyzeMatch = analyzeMatch;
+exports.analyzeMatchInternal = analyzeMatchInternal;
 exports.generateForMatch = generateForMatch;
+exports.generateForMatchInternal = generateForMatchInternal;
 exports.getMatchById = getMatchById;
 const prismaClient_1 = __importDefault(require("../prismaClient"));
 const gemini = __importStar(require("./gemini.service"));
@@ -128,6 +130,13 @@ async function analyzeMatch(user, resumeId, jdId) {
     }
     logger_1.logger.info("Match analysis created successfully", { matchId: match.id, resumeId, jdId, score: match.score });
     return match;
+}
+/**
+ * Internal version for Job Worker - avoids HttpError
+ */
+async function analyzeMatchInternal(userId, data) {
+    const { resumeId, jdId } = data;
+    return analyzeMatch({ id: userId }, resumeId, jdId);
 }
 async function generateForMatch(user, resumeId, jdId) {
     if (!resumeId || typeof resumeId !== "string")
@@ -260,14 +269,18 @@ async function generateForMatch(user, resumeId, jdId) {
     }
     return { match, analysis: null, generated };
 }
+/**
+ * Internal version for Job Worker - avoids HttpError
+ */
+async function generateForMatchInternal(userId, data) {
+    const { resumeId, jdId } = data;
+    return generateForMatch({ id: userId }, resumeId, jdId);
+}
 async function getMatchById(userId, id) {
     const match = await prismaClient_1.default.matchAnalysis.findUnique({ where: { id } });
     if (!match)
         throw new httpError_1.HttpError(404, "Analysis not found");
-    // Enforce ownership check: user must own the analysis or be admin
-    const isOwner = match.userId === userId;
-    const isAdmin = false; // Admin check would be added here if available in context
-    if (!isOwner && !isAdmin) {
+    if (match.userId !== userId) {
         throw new httpError_1.HttpError(403, "You do not have access to this analysis");
     }
     return match;

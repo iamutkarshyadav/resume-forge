@@ -42,17 +42,18 @@ export default function AnalysisLoadingPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { showErrorFromException } = useErrorHandler();
+  const ctx = (trpc as any).useUtils();
   const [currentStep, setCurrentStep] = useState(0);
   const [currentMessage, setCurrentMessage] = useState(0);
 
-  const analyzeMutation = trpc.match.analyzeResumeToJD.useMutation({
-    retry: (failureCount, error) => {
+  const analyzeMutation = (trpc as any).match.analyzeResumeToJD.useMutation({
+    retry: (failureCount: number, error: any) => {
       if (error.data?.httpStatus === 503 && failureCount < 3) {
         return true;
       }
       return false;
     },
-    retryDelay: (attemptIndex) => Math.min(attemptIndex * 2000, 30000),
+    retryDelay: (attemptIndex: number) => Math.min(attemptIndex * 2000, 30000),
   });
 
   // Perform analysis on mount
@@ -73,23 +74,58 @@ export default function AnalysisLoadingPage() {
         jdId,
       },
       {
-        onSuccess: (result) => {
-          if (!result?.id) {
-             toast.error("Analysis completed, but did not return a valid ID.");
+        onSuccess: async (data: any) => {
+          if (!data?.jobId) {
+             toast.error("Analysis failed to start.");
              router.push("/analyze");
              return;
           }
-          // The result of the mutation is the `Match` object. We need its ID.
-          const matchId = result.id;
-          
-          // Pass both matchId and jdId to the results page.
-          // jdId is needed for the "generate resume" step later.
-          const params = new URLSearchParams({
-            matchId: matchId,
-            jdId: jdId,
-          });
 
-          router.push(`/analyze/results?${params.toString()}`);
+          const jobId = data.jobId;
+          
+          // Start Polling
+          let completed = false;
+          let attempts = 0;
+          const maxAttempts = 90; // 3 minutes total (2s * 90)
+
+          const poll = async () => {
+            if (attempts >= maxAttempts) {
+              toast.error("Analysis timed out. Please try again.");
+              router.push("/analyze");
+              return;
+            }
+
+            try {
+              // We need the trpc utils context to call queries manually
+              // Since we are in a hook, we can't easily use useContext here if it's not already top-level
+              // But we can use the `trpc.job.getJobStatus.fetch` if we have the utils
+              
+              // Wait 2 seconds
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              attempts++;
+
+              const job = await ctx.job.getJobStatus.fetch({ jobId });
+
+              if (job.status === "completed") {
+                const matchId = (job.result as any)?.id;
+                if (!matchId) {
+                  throw new Error("Match ID missing in job result");
+                }
+                router.push(`/analyze/results?matchId=${matchId}&jdId=${jdId}`);
+                completed = true;
+              } else if (job.status === "failed") {
+                throw new Error(job.error || "Analysis failed");
+              } else {
+                // Continue polling
+                poll();
+              }
+            } catch (err: any) {
+              toast.error(err.message || "Polling failed");
+              router.push("/analyze");
+            }
+          };
+
+          poll();
         },
         onError: (error: any) => {
           // Safely handle error - check if error exists
@@ -112,17 +148,7 @@ export default function AnalysisLoadingPage() {
           }
           
           // Using error handler with retry
-          showErrorFromException(error, {
-            title: "Analysis Failed",
-            message: errorMessage,
-            retry: () => {
-              const resumeId = searchParams.get("resumeId");
-              const jdId = searchParams.get("jdId");
-              if (resumeId && jdId) {
-                analyzeMutation.mutate({ resumeId, jdId });
-              }
-            },
-          });
+          showErrorFromException(error, errorMessage);
         },
       }
     );

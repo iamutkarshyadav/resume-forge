@@ -280,7 +280,7 @@ class WebhookLogger {
 
     if (session) {
       context.sessionId = session.id;
-      context.userId = session.client_reference_id;
+      context.userId = session.client_reference_id || undefined;
       context.paymentStatus = session.payment_status;
       context.amount = session.amount_total;
       context.currency = session.currency;

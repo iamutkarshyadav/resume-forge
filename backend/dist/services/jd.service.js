@@ -17,7 +17,8 @@ async function parseJDFile(file) {
 async function saveJobDescription(userId, fullText) {
     const jd = await prismaClient_1.default.jobDescription.create({
         data: {
-            userId: userId ?? undefined,
+            userId,
+            title: "Untitled Job", // Required field
             fullText
         }
     });

@@ -62,9 +62,12 @@ export async function generateHandler(req: Request, res: Response, next: NextFun
 
 export async function getMatchHandler(req: Request, res: Response, next: NextFunction) {
   try {
+    const user = (req as any).user;
+    if (!user) return res.status(401).json({ message: "Unauthorized" });
+
     const id = req.params.id;
     if (!id) return res.status(400).json({ message: "match id required" });
-    const match = await getMatchById(id);
+    const match = await getMatchById(user.id, id);
     if (!match) return res.status(404).json({ message: "not found" });
     res.json(match);
   } catch (e) {

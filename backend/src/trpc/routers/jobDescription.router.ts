@@ -42,7 +42,7 @@ export const jobDescriptionRouter = router({
       try {
         const user = validateAuthContext(ctx);
 
-        const jds = await jdService.listJobDescriptions(user.id, input.tag);
+        const jds = await jdService.listJobDescriptions(user.id, input.tag || undefined);
         return jds;
       } catch (err: any) {
         if (err instanceof TRPCError) throw err;

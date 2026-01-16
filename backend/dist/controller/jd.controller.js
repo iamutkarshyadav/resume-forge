@@ -66,10 +66,13 @@ async function generateHandler(req, res, next) {
 }
 async function getMatchHandler(req, res, next) {
     try {
+        const user = req.user;
+        if (!user)
+            return res.status(401).json({ message: "Unauthorized" });
         const id = req.params.id;
         if (!id)
             return res.status(400).json({ message: "match id required" });
-        const match = await (0, match_service_1.getMatchById)(id);
+        const match = await (0, match_service_1.getMatchById)(user.id, id);
         if (!match)
             return res.status(404).json({ message: "not found" });
         res.json(match);

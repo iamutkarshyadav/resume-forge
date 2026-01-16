@@ -93,6 +93,14 @@ export async function analyzeMatch(user: { id: string; role?: string }, resumeId
   return match;
 }
 
+/**
+ * Internal version for Job Worker - avoids HttpError
+ */
+export async function analyzeMatchInternal(userId: string, data: { resumeId: string; jdId: string }) {
+  const { resumeId, jdId } = data;
+  return analyzeMatch({ id: userId }, resumeId, jdId);
+}
+
 export async function generateForMatch(user: { id: string; role?: string }, resumeId: string, jdId: string) {
   if (!resumeId || typeof resumeId !== "string") throw new HttpError(400, "Invalid resumeId");
   if (!jdId || typeof jdId !== "string") throw new HttpError(400, "Invalid jdId");
@@ -240,15 +248,19 @@ export async function generateForMatch(user: { id: string; role?: string }, resu
   return { match, analysis: null, generated };
 }
 
+/**
+ * Internal version for Job Worker - avoids HttpError
+ */
+export async function generateForMatchInternal(userId: string, data: { resumeId: string; jdId: string }) {
+  const { resumeId, jdId } = data;
+  return generateForMatch({ id: userId }, resumeId, jdId);
+}
+
 export async function getMatchById(userId: string, id: string) {
   const match = await prisma.matchAnalysis.findUnique({ where: { id } });
   if (!match) throw new HttpError(404, "Analysis not found");
 
-  // Enforce ownership check: user must own the analysis or be admin
-  const isOwner = match.userId === userId;
-  const isAdmin = false; // Admin check would be added here if available in context
-
-  if (!isOwner && !isAdmin) {
+  if (match.userId !== userId) {
     throw new HttpError(403, "You do not have access to this analysis");
   }
 

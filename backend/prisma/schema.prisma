@@ -38,13 +38,19 @@ model Job {
   status      String    @default("pending") // "pending", "processing", "completed", "failed"
   
   data        Json      // Input parameters
+  idempotencyKey String?
   result      Json?     // Success output
-  error       String?   // Error message
+  error       String?   // Failure reason
+  retries     Int       @default(0)
+  maxRetries  Int       @default(1)
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   startedAt   DateTime?
   completedAt DateTime?
+
+  @@unique([userId, idempotencyKey])
+  @@index([status, createdAt])
 }
 
 model OnboardingProgress {

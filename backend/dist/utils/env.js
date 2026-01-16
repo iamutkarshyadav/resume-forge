@@ -38,7 +38,8 @@ const envSchema = zod_1.z.object({
     GEMINI_MODEL: zod_1.z.string().default("gemini-2.5-flash"),
     STRIPE_SECRET_KEY: zod_1.z.string().min(1, "STRIPE_SECRET_KEY is required for billing"),
     STRIPE_WEBHOOK_SECRET: zod_1.z.string().optional(),
-    STRIPE_TEST_WEBHOOK_SECRET: zod_1.z.string().optional()
+    STRIPE_TEST_WEBHOOK_SECRET: zod_1.z.string().optional(),
+    REDIS_URL: zod_1.z.string().default("redis://localhost:6379")
 });
 try {
     var env = envSchema.parse(process.env);

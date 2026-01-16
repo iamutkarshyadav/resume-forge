@@ -1,16 +1,47 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pdfRouter = void 0;
 const trpc_1 = require("../trpc");
 const zod_1 = require("zod");
+const crypto_1 = require("crypto");
 const validate_context_1 = require("../validate-context");
 const logger_1 = require("../../utils/logger");
-const react_1 = __importDefault(require("react"));
-// Import from shared package
-const shared_1 = require("@resume-forge/shared");
+const jobService = __importStar(require("../../services/job.service"));
+// HTML rendering removed in Phase 1 overhaul
+// Puppeteer removed in Phase 1 overhaul
 // Schema for resume data (matches frontend structure)
 // We keep this to validate input struct, then transform to AST
 const ResumeDataSchema = zod_1.z.object({
@@ -88,71 +119,19 @@ exports.pdfRouter = (0, trpc_1.router)({
                     message: "Insufficient credits. Please purchase credits to download PDF.",
                 });
             }
-            // Step 2: Generate PDF using Unified Renderer (React-PDF)
-            logger_1.logger.info("Generating PDF via Unified Renderer", { userId: user.id, fileName });
-            let pdfBuffer;
-            try {
-                // A. Map to AST
-                // We cast input to LegacyResumeData because Zod schema matches it structure-wise
-                const ast = (0, shared_1.mapToAST)(resumeData, shared_1.DEFAULT_TEMPLATE_RULES);
-                // B. Resolve Layout (Strict Backend Re-validation)
-                const layout = (0, shared_1.resolveLayout)(ast, shared_1.DEFAULT_TEMPLATE_RULES);
-                // C. Render to Stream
-                const stream = await (0, shared_1.renderToStream)(react_1.default.createElement(shared_1.ResumeDocument, { layout }));
-                // D. Stream to Buffer
-                const chunks = [];
-                for await (const chunk of stream) {
-                    chunks.push(chunk);
-                }
-                pdfBuffer = Buffer.concat(chunks);
-            }
-            catch (pdfError) {
-                logger_1.logger.error("PDF generation failed", {
-                    userId: user.id,
-                    fileName,
-                    error: pdfError.message
-                });
-                throw new trpc_1.TRPCError({
-                    code: "INTERNAL_SERVER_ERROR",
-                    message: pdfError.message || "Failed to generate PDF. Please try again."
-                });
-            }
-            if (!pdfBuffer || pdfBuffer.length === 0) {
-                throw new Error("PDF generation resulted in empty buffer");
-            }
-            // Step 3: Atomically deduct credit and record transaction
-            const [updatedUser, transaction] = await Promise.all([
-                ctx.prisma.user.update({
-                    where: { id: user.id },
-                    data: { credits: userData.credits - 1 },
-                    select: { credits: true },
-                }),
-                ctx.prisma.billingTransaction.create({
-                    data: {
-                        userId: user.id,
-                        type: "deduction",
-                        amount: -1,
-                        reason: "pdf_download",
-                        metadata: {
-                            fileName,
-                            timestamp: new Date().toISOString(),
-                        },
-                    },
-                }),
-            ]);
-            logger_1.logger.info("Credit deducted for PDF download", {
-                userId: user.id,
-                fileName,
-                creditsRemaining: updatedUser.credits,
-                transactionId: transaction.id
-            });
-            // Step 4: Return PDF as base64 and metadata
+            // Step 2: Create Job
+            const hash = (0, crypto_1.createHash)("md5")
+                .update(user.id + JSON.stringify(resumeData))
+                .digest("hex");
+            const idempotencyKey = `pdf_${hash}`;
+            const job = await jobService.createJob(user.id, "generate_pdf", {
+                resumeData,
+                fileName
+            }, idempotencyKey);
+            logger_1.logger.info("PDF Generation Job created", { userId: user.id, jobId: job.id });
             return {
                 success: true,
-                pdfBase64: pdfBuffer.toString("base64"),
-                fileName: fileName,
-                creditsRemaining: updatedUser.credits,
-                transactionId: transaction.id,
+                jobId: job.id
             };
         }
         catch (error) {
@@ -175,31 +154,15 @@ exports.pdfRouter = (0, trpc_1.router)({
             });
         }
     }),
-    // Check if user can download PDF (has sufficient credits)
     checkDownloadEligibility: trpc_1.protectedProcedure.query(async ({ ctx }) => {
-        try {
-            const user = (0, validate_context_1.validateAuthContext)(ctx);
-            const userData = await ctx.prisma.user.findUnique({
-                where: { id: user.id },
-                select: { credits: true },
-            });
-            return {
-                canDownload: (userData?.credits || 0) >= 1,
-                credits: userData?.credits || 0,
-                creditsNeeded: 1,
-            };
-        }
-        catch (error) {
-            if (error instanceof trpc_1.TRPCError)
-                throw error;
-            logger_1.logger.error("Error checking download eligibility", {
-                error: error?.message,
-                code: error?.code
-            });
-            throw new trpc_1.TRPCError({
-                code: "INTERNAL_SERVER_ERROR",
-                message: "Failed to check eligibility",
-            });
-        }
+        const user = (0, validate_context_1.validateAuthContext)(ctx);
+        const userData = await ctx.prisma.user.findUnique({
+            where: { id: user.id },
+            select: { credits: true },
+        });
+        return {
+            canDownload: (userData?.credits ?? 0) > 0,
+            credits: userData?.credits ?? 0,
+        };
     }),
 });

@@ -68,7 +68,7 @@ exports.jobDescriptionRouter = (0, trpc_1.router)({
         .query(async ({ input, ctx }) => {
         try {
             const user = (0, validate_context_1.validateAuthContext)(ctx);
-            const jds = await jdService.listJobDescriptions(user.id, input.tag);
+            const jds = await jdService.listJobDescriptions(user.id, input.tag || undefined);
             return jds;
         }
         catch (err) {

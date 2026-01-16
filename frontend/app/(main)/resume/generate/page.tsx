@@ -37,13 +37,14 @@ export default function ResumeGeneratePage() {
   const searchParams = useSearchParams()
   const { showErrorFromException } = useErrorHandler()
   const { setGeneratedResumeData } = useResumeGeneration();
+  const ctx = (trpc as any).useUtils();
 
 
   const [currentStep, setCurrentStep] = useState<ProgressStep>('parsing')
   const [error, setError] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
 
-  const generateMutation = trpc.match.generateResumeForJD.useMutation()
+  const generateMutation = (trpc as any).match.generateResumeForJD.useMutation()
 
   // Get parameters and trigger generation
   useEffect(() => {
@@ -63,28 +64,50 @@ export default function ResumeGeneratePage() {
     // Trigger generation
     const triggerGeneration = async () => {
       try {
-        // Simulate progress through steps
+        // Visual progress (brief delays for UX)
         setCurrentStep('parsing')
-        await new Promise((resolve) => setTimeout(resolve, 800))
-
+        await new Promise((resolve) => setTimeout(resolve, 500))
         setCurrentStep('matching')
-        await new Promise((resolve) => setTimeout(resolve, 800))
-
+        await new Promise((resolve) => setTimeout(resolve, 500))
         setCurrentStep('rewriting')
-        await new Promise((resolve) => setTimeout(resolve, 800))
 
-        setCurrentStep('finalizing')
-
-        // Call API
+        // 1. Trigger Job
         const response = await generateMutation.mutateAsync({
           resumeId,
           jdId,
         })
 
-        const generatedData = (response as any)?.generated || (response as any)?.match?.generatedResume
+        if (!(response as any).jobId) {
+          throw new Error('Failed to start resume generation job')
+        }
+
+        const jobId = (response as any).jobId
+        
+        // 2. Poll for Status
+        setCurrentStep('finalizing')
+        
+        let attempts = 0;
+        const maxAttempts = 40; // 80 seconds
+
+        const pollJob = async (): Promise<any> => {
+           if (attempts >= maxAttempts) throw new Error("Generation timed out");
+           
+           await new Promise(r => setTimeout(r, 2000));
+           attempts++;
+           
+           const job = await ctx.job.getJobStatus.fetch({ jobId });
+           
+           if (job.status === "completed") return job.result;
+           if (job.status === "failed") throw new Error(job.error || "Generation failed");
+           
+           return pollJob();
+        }
+
+        const jobResult = await pollJob();
+        const generatedData = jobResult?.generated || jobResult?.match?.generatedResume
 
         if (!generatedData) {
-          throw new Error('No resume data returned from generation')
+          throw new Error('Generated data missing in job result')
         }
         
         // Store the generated data in the provider for the template selection page
@@ -94,7 +117,7 @@ export default function ResumeGeneratePage() {
         setCurrentStep('complete')
 
         // Navigate to templates page after a brief delay
-        await new Promise((resolve) => setTimeout(resolve, 1500))
+        await new Promise((resolve) => setTimeout(resolve, 1000))
         router.push('/resume/templates')
       } catch (err) {
         console.error('Generation error:', err)
